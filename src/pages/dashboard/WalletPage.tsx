@@ -63,6 +63,24 @@ const WalletPage = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loadingTransactions, setLoadingTransactions] = useState(true)
   
+  // Debug: Log balance changes
+  useEffect(() => {
+    console.log('💰 Redux balance state changed:', balance)
+  }, [balance])
+
+  // Debug function to manually test balance update
+  const testBalanceUpdate = async () => {
+    console.log('🧪 Testing manual balance update...')
+    try {
+      const serverBalance = await walletService.getBalance()
+      console.log('🧪 Server balance fetched:', serverBalance)
+      dispatch(setBalance(serverBalance))
+      console.log('🧪 Balance manually updated')
+    } catch (error) {
+      console.error('🧪 Failed to test balance update:', error)
+    }
+  }
+  
   // Bank details state
   const [selectedBank, setSelectedBank] = useState('')
   const [accountNumber, setAccountNumber] = useState('')
@@ -71,6 +89,8 @@ const WalletPage = () => {
   
   // Deposit states
   const [depositStatus, setDepositStatus] = useState<'idle' | 'loading' | 'failed'>('idle')
+  const [depositStep, setDepositStep] = useState<'form' | 'qr' | 'upload'>('form')
+  const [paymentProof, setPaymentProof] = useState<File | null>(null)
   
   // WhatsApp number from server
   const [whatsappNumber, setWhatsappNumber] = useState('919876543210')
@@ -85,6 +105,27 @@ const WalletPage = () => {
   const [showUnholdModal, setShowUnholdModal] = useState(false)
   const [hasPendingUnholdRequest, setHasPendingUnholdRequest] = useState(false)
   const [showBlockedActionModal, setShowBlockedActionModal] = useState(false)
+  
+  // Check if user has unpaid bank electronic charge
+  const hasUnpaidBankCharge = (() => {
+    const withdrawalTransactions = transactions.filter(t => t.type === 'withdrawal')
+    if (withdrawalTransactions.length === 0) return false
+    
+    // Sort by creation date (newest first)
+    const sortedWithdrawals = withdrawalTransactions.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )
+    
+    // Check if the most recent withdrawal is failed due to bank charge
+    const latestWithdrawal = sortedWithdrawals[0]
+    return latestWithdrawal.status === 'failed' && 
+           latestWithdrawal.description?.includes('Due Bank Electronic Charge')
+  })()
+
+  // Check if account is on hold and needs unhold payment
+  const hasUnholdChargesPending = transactions.some(t => 
+    t.type === 'withdrawal' && t.status === 'on_hold'
+  )
 
   // Fetch WhatsApp number from server
   useEffect(() => {
@@ -137,34 +178,95 @@ const WalletPage = () => {
     checkUnholdStatus()
   }, [])
 
+  // Refresh data when page becomes visible (user switches tabs)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('🔄 Page became visible, refreshing wallet data...')
+        refreshWalletData()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+
+  // Periodic refresh for pending withdrawals
+  useEffect(() => {
+    const hasPendingWithdrawals = transactions.some(t => 
+      t.type === 'withdrawal' && (t.status === 'pending' || t.status === 'processing')
+    )
+    
+    if (hasPendingWithdrawals) {
+      console.log('⏰ Starting periodic refresh for pending withdrawals...')
+      const interval = setInterval(() => {
+        console.log('🔄 Periodic refresh for pending withdrawals...')
+        refreshWalletData()
+      }, 30000) // Refresh every 30 seconds
+
+      return () => {
+        console.log('⏹️ Stopping periodic refresh')
+        clearInterval(interval)
+      }
+    }
+  }, [transactions])
+
   // Listen for withdrawal status updates via WebSocket
   useEffect(() => {
     const socket = (wsService as any).socket
     if (socket && user?.id) {
+      console.log('🔌 Checking WebSocket connection...')
+      console.log('🔌 Socket connected:', socket.connected)
+      console.log('🔌 Socket ID:', socket.id)
+      
       const handleStatusUpdate = (data: { userId: string; status: string; refundAmount?: number; withdrawalId?: string; newBalance?: number }) => {
         console.log('💰 Wallet page received WebSocket update:', data)
         console.log('Current user ID:', user.id)
+        console.log('Data details:', JSON.stringify(data, null, 2))
         
         if (data.userId === user.id) {
           console.log('✅ User ID matches, updating wallet...')
           
-          // If newBalance is provided, update it immediately in Redux
+          // Update balance immediately if newBalance is provided
           if (data.newBalance !== undefined) {
             console.log(`💵 Immediately updating balance to: ${data.newBalance}`)
-            const currentBalance = balance
-            dispatch(setBalance({
-              available: data.newBalance - (currentBalance?.blocked || 0),
-              blocked: currentBalance?.blocked || 0,
-              invested: currentBalance?.invested || 0,
-              total: data.newBalance
-            }))
-          }
-          
-          // Refresh transaction history and balance from server
-          setTimeout(() => {
+            console.log(`💵 Current balance before update:`, balance)
+            
+            // Fetch the correct balance breakdown from server
+            walletService.getBalance().then((serverBalance) => {
+              console.log(`💵 Server balance received:`, serverBalance)
+              console.log(`💵 Balance breakdown - Available: ${serverBalance.available}, Total: ${serverBalance.total}`)
+              dispatch(setBalance(serverBalance))
+              console.log(`💵 Redux balance updated with server data`)
+              console.log(`💵 New Redux state should be:`, serverBalance)
+            }).catch((error) => {
+              console.error('Failed to get updated balance:', error)
+              // Fallback: assume newBalance is total and calculate available
+              const fallbackBalance = {
+                available: data.newBalance,
+                blocked: 0,
+                invested: 0,
+                total: data.newBalance
+              }
+              console.log(`💵 Using fallback balance:`, fallbackBalance)
+              dispatch(setBalance(fallbackBalance))
+            })
+            
+            // For balance updates, also refresh transactions
+            if (data.status === 'failed') {
+              console.log('🔄 Refreshing transactions after failed withdrawal...')
+              walletService.getTransactions().then((transactionData) => {
+                setTransactions(transactionData || [])
+                console.log(`📊 Transactions refreshed after balance update, count: ${transactionData?.length || 0}`)
+              }).catch((error) => {
+                console.error('Failed to refresh transactions:', error)
+              })
+            }
+          } else {
+            // For other updates without balance change, refresh all data
             console.log('🔄 Refreshing wallet data from server...')
             refreshWalletData()
-          }, 500) // Small delay to ensure backend has updated
+          }
           
           // Show toast notification
           if (data.status === 'failed' && data.refundAmount) {
@@ -217,6 +319,8 @@ const WalletPage = () => {
         socket.off('withdrawalStatusUpdate', handleStatusUpdate)
         socket.off('accountStatusUpdate', handleAccountStatusUpdate)
       }
+    } else {
+      console.log('🔌 WebSocket not available or user not logged in')
     }
   }, [user?.id])
 
@@ -266,6 +370,11 @@ const WalletPage = () => {
     setDepositAmount('')
     setDiscountCode('')
     setDepositStatus('idle')
+    setDepositStep('form')
+    setPaymentProof(null)
+    setSelectedBank('')
+    setAccountNumber('')
+    setIfscCode('')
   }
 
   const filteredTransactions = transactions.filter(t => {
@@ -351,11 +460,23 @@ const WalletPage = () => {
                 onClick={() => {
                   if (hasPendingUnholdRequest) {
                     setShowBlockedActionModal(true)
+                  } else if (hasUnholdChargesPending) {
+                    toast.error('Your account is on hold. Please pay the unhold charges to enable deposits.', {
+                      duration: 4000,
+                      icon: '⚠️',
+                      style: {
+                        background: '#1a1b23',
+                        color: '#fff',
+                        border: '1px solid rgba(239, 68, 68, 0.3)'
+                      }
+                    })
                   } else {
                     setActiveModal('deposit')
                   }
                 }}
-                className={`flex-1 btn-primary flex items-center justify-center gap-2 ${hasPendingUnholdRequest ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`flex-1 btn-primary flex items-center justify-center gap-2 ${
+                  hasPendingUnholdRequest || hasUnholdChargesPending ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               >
                 <Plus className="w-5 h-5" />
                 Deposit
@@ -364,14 +485,53 @@ const WalletPage = () => {
                 onClick={() => {
                   if (hasPendingUnholdRequest) {
                     setShowBlockedActionModal(true)
+                  } else if (hasUnholdChargesPending) {
+                    toast.error('Your account is on hold. Please pay the unhold charges to enable withdrawals.', {
+                      duration: 4000,
+                      icon: '⚠️',
+                      style: {
+                        background: '#1a1b23',
+                        color: '#fff',
+                        border: '1px solid rgba(239, 68, 68, 0.3)'
+                      }
+                    })
+                  } else if (hasUnpaidBankCharge) {
+                    toast.error('Please complete your pending bank electronic charge payment first', {
+                      duration: 4000,
+                      icon: '⚠️',
+                      style: {
+                        background: '#1a1b23',
+                        color: '#fff',
+                        border: '1px solid rgba(239, 68, 68, 0.3)'
+                      }
+                    })
                   } else {
                     setActiveModal('withdraw')
                   }
                 }}
-                className={`flex-1 btn-secondary flex items-center justify-center gap-2 ${hasPendingUnholdRequest ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`flex-1 btn-secondary flex items-center justify-center gap-2 ${
+                  hasPendingUnholdRequest || hasUnholdChargesPending || hasUnpaidBankCharge ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+                title={
+                  hasUnholdChargesPending 
+                    ? 'Account on hold - Pay unhold charges to enable withdrawals' 
+                    : hasUnpaidBankCharge 
+                      ? 'Complete your pending bank electronic charge payment to enable withdrawals' 
+                      : ''
+                }
               >
                 <Minus className="w-5 h-5" />
                 Withdraw
+                {hasUnpaidBankCharge && (
+                  <span className="ml-1 text-xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded">
+                    Pending Payment
+                  </span>
+                )}
+                {hasUnholdChargesPending && (
+                  <span className="ml-1 text-xs bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded">
+                    Account on Hold
+                  </span>
+                )}
               </button>
             </div>
             <button
@@ -395,6 +555,12 @@ const WalletPage = () => {
               className="w-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 py-2 px-4 rounded-xl text-sm font-medium transition-colors"
             >
               + Test Balance (NPR 500)
+            </button>
+            <button
+              onClick={testBalanceUpdate}
+              className="w-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 py-2 px-4 rounded-xl text-sm font-medium transition-colors"
+            >
+              🔄 Refresh Balance (Debug)
             </button>
           </div>
         </motion.div>
@@ -1002,7 +1168,7 @@ const WalletPage = () => {
                   transition={{ delay: 0.2 }}
                   className="text-2xl font-bold text-white text-center mb-2"
                 >
-                  Action Blocked
+                  {hasUnholdChargesPending ? 'Account on Hold' : 'Action Blocked'}
                 </motion.h3>
 
                 <motion.p
@@ -1011,12 +1177,15 @@ const WalletPage = () => {
                   transition={{ delay: 0.3 }}
                   className="text-gray-300 text-center mb-6 max-w-xs"
                 >
-                  We are working on your account unhold request. Please wait for admin approval.
+                  {hasUnholdChargesPending 
+                    ? 'Your account is on hold due to multiple failed withdrawals. Pay the unhold charges to restore access.'
+                    : 'We are working on your account unhold request. Please wait for admin approval.'
+                  }
                 </motion.p>
 
                 <div className="w-full p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 mb-6">
                   <p className="text-orange-400 text-sm text-center">
-                    ⏱️ Your deposit and withdrawal functions are temporarily blocked while we process your unhold request.
+                    ⏱️ Your deposit and withdrawal functions are temporarily blocked. {hasUnholdChargesPending ? 'Pay the unhold charges to restore access.' : 'We are processing your unhold request.'}
                   </p>
                 </div>
 

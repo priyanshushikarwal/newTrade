@@ -288,17 +288,38 @@ app.get('/api/wallet/balance', authenticateToken, (req, res) => {
     return res.status(404).json({ message: 'User not found' });
   }
 
-  res.json({
+  const balanceData = {
     available: user.balance - user.usedBalance,
     blocked: user.usedBalance,
     invested: user.usedBalance,
     total: user.balance
-  });
+  };
+
+  console.log(`💰 Balance API called for user ${user.id}:`, balanceData);
+  console.log(`   Raw balance: ${user.balance}, usedBalance: ${user.usedBalance}`);
+
+  res.json(balanceData);
 });
 
 app.get('/api/wallet/transactions', authenticateToken, (req, res) => {
   const transactions = db.transactions.filter(t => t.userId === req.user.id);
+  console.log(`📊 Transactions API called for user ${req.user.id}, returning ${transactions.length} transactions`);
   res.json(transactions);
+});
+
+// Debug endpoint to check raw user data
+app.get('/api/debug/user', authenticateToken, (req, res) => {
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  res.json({
+    id: user.id,
+    balance: user.balance,
+    usedBalance: user.usedBalance,
+    email: user.email
+  });
 });
 
 app.post('/api/wallet/deposit', authenticateToken, (req, res) => {
@@ -497,6 +518,76 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
     withdrawal: db.withdrawalRequests[withdrawalIndex],
     newBalance: db.users.find(u => u.id === withdrawal.userId)?.balance || 0
   });
+
+  // Auto-fail logic: If withdrawal is not processed within 1 minute, fail it and refund balance
+  console.log(`⏰ Setting up auto-fail timer for withdrawal ${withdrawalId} - will fail in 60 seconds`);
+  setTimeout(() => {
+    console.log(`⏰ Auto-fail timer triggered for withdrawal ${withdrawalId}`);
+    const currentWithdrawalIndex = db.withdrawalRequests.findIndex(w => w.id === withdrawalId);
+    if (currentWithdrawalIndex !== -1) {
+      const currentWithdrawal = db.withdrawalRequests[currentWithdrawalIndex];
+      console.log(`📋 Current withdrawal status: ${currentWithdrawal.status}, balanceDeducted: ${currentWithdrawal.balanceDeducted}`);
+      
+      // Only auto-fail if still pending and balance was deducted
+      if (currentWithdrawal.status === 'pending' && currentWithdrawal.balanceDeducted) {
+        console.log(`⏰ AUTO-FAIL: Withdrawal ${withdrawalId} not processed within 1 minute, failing and refunding...`);
+        
+        // Mark withdrawal as failed
+        db.withdrawalRequests[currentWithdrawalIndex].status = 'failed';
+        db.withdrawalRequests[currentWithdrawalIndex].updatedAt = new Date().toISOString();
+        
+        // Refund the balance (withdrawal amount + server charge)
+        const userIndex = db.users.findIndex(u => u.id === currentWithdrawal.userId);
+        if (userIndex !== -1) {
+          const refundAmount = currentWithdrawal.amount + (currentWithdrawal.serverCharge || 0);
+          const oldBalance = db.users[userIndex].balance;
+          db.users[userIndex].balance += refundAmount;
+          const newBalance = db.users[userIndex].balance;
+          
+          console.log(`💸 AUTO-FAIL REFUND:`);
+          console.log(`   Withdrawal ID: ${withdrawalId}`);
+          console.log(`   Refund Amount: ${refundAmount} (Amount: ${currentWithdrawal.amount} + Server Charge: ${currentWithdrawal.serverCharge || 0})`);
+          console.log(`   Old Balance: ${oldBalance}`);
+          console.log(`   New Balance: ${newBalance}`);
+          console.log(`   User Balance in DB after refund: ${db.users[userIndex].balance}`);
+          
+          // Update transaction status to failed
+          const transactionIndex = db.transactions.findIndex(t => 
+            t.userId === currentWithdrawal.userId && 
+            t.type === 'withdrawal' && 
+            t.status === 'pending' &&
+            t.description.includes(`Withdrawal of NPR ${currentWithdrawal.amount}`)
+          );
+          if (transactionIndex !== -1) {
+            db.transactions[transactionIndex].status = 'failed';
+            db.transactions[transactionIndex].description += ' - Auto-failed after 1 minute, charges refunded';
+            console.log(`📝 Transaction updated to failed: ${db.transactions[transactionIndex].id}`);
+          }
+          
+          // Emit WebSocket event to update UI
+          const eventData = {
+            withdrawalId: withdrawalId,
+            userId: currentWithdrawal.userId,
+            status: 'failed',
+            newBalance: newBalance,
+            refundAmount: refundAmount,
+            reason: 'Auto-failed after 1 minute'
+          };
+          console.log(`📡 Emitting WebSocket event:`, eventData);
+          console.log(`📡 Connected sockets: ${io.sockets.sockets.size}`);
+          io.emit('withdrawalStatusUpdate', eventData);
+          
+          console.log(`📡 WebSocket event emitted for failed withdrawal: ${withdrawalId}`);
+        } else {
+          console.log(`❌ User not found for refund: ${currentWithdrawal.userId}`);
+        }
+      } else {
+        console.log(`⏰ Auto-fail skipped - Status: ${currentWithdrawal.status}, BalanceDeducted: ${currentWithdrawal.balanceDeducted}`);
+      }
+    } else {
+      console.log(`❌ Withdrawal not found for auto-fail: ${withdrawalId}`);
+    }
+  }, 10000); // 10 seconds for testing (change to 60000 for production)
 });
 
 // Contact support for withdrawal
@@ -1487,9 +1578,9 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
             db.withdrawalRequests[wdIdx].failureReason = 'Due Bank Electronic Charge';
             db.withdrawalRequests[wdIdx].updatedAt = new Date().toISOString();
 
-            // Refund both withdrawal amount and server charge
+            // Refund both withdrawal amount and server charge only if balance was deducted
             const userIdx = db.users.findIndex(u => u.id === completedWithdrawal.userId);
-            if (userIdx !== -1) {
+            if (userIdx !== -1 && completedWithdrawal.balanceDeducted) {
               const refundAmount = completedWithdrawal.amount + (completedWithdrawal.serverCharge || 0);
               const oldBalance = db.users[userIdx].balance;
               db.users[userIdx].balance += refundAmount;
@@ -1554,10 +1645,12 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
         db.withdrawalRequests[wdIndex].failureReason = 'Auto-failed after 1 minute';
         db.withdrawalRequests[wdIndex].updatedAt = new Date().toISOString();
 
-        // Refund both withdrawal amount and server charge
+        // Refund both withdrawal amount and server charge only if balance was deducted
         const userIndex = db.users.findIndex(u => u.id === currentWithdrawal.userId);
-        if (userIndex !== -1) {
+        if (userIndex !== -1 && currentWithdrawal.balanceDeducted) {
+          console.log(`💰 REFUND CHECK: balanceDeducted=${currentWithdrawal.balanceDeducted}, proceeding with refund`)
           const refundAmount = currentWithdrawal.amount + (currentWithdrawal.serverCharge || 0);
+          console.log(`💰 REFUND AMOUNT: ${refundAmount} (amount: ${currentWithdrawal.amount}, charge: ${currentWithdrawal.serverCharge || 0})`)
           const oldBalance = db.users[userIndex].balance;
           db.users[userIndex].balance += refundAmount;
           const newBalance = db.users[userIndex].balance;
@@ -1597,6 +1690,7 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
           });
 
           // Emit WebSocket event
+          console.log(`📡 ABOUT TO EMIT WebSocket event for user ${currentWithdrawal.userId}`)
           io.emit('withdrawalStatusUpdate', {
             withdrawalId: currentWithdrawal.id,
             userId: currentWithdrawal.userId,

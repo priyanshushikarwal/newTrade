@@ -118,7 +118,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
             console.log('❌ Polling detected rejected status')
             // Withdrawal rejected by admin
             const totalRefund = (statusData.withdrawal.amount || 0) + (statusData.withdrawal.serverCharge || 0)
-            setFailureReason(statusData.withdrawal.failureReason || statusData.withdrawal.rejectionReason || 'Withdrawal rejected by admin')
+            setFailureReason(statusData.withdrawal.failureReason || 'Withdrawal rejected by admin')
             setRefundAmount(totalRefund)
             setStep('failed')
             
@@ -153,7 +153,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
 
             // Auto redirect after 5 seconds
             setTimeout(() => {
-              window.location.href = '/dashboard/wallet'
+              window.location.href = '/wallet'
             }, 5000)
           }
         } catch (error) {
@@ -214,7 +214,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
               }
 
               setTimeout(() => {
-                window.location.href = '/dashboard/wallet'
+                window.location.href = '/wallet'
               }, 5000)
             }
           } else {
@@ -934,9 +934,10 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                   <p className="text-white text-lg text-center font-bold">
                     NPR {refundAmount.toLocaleString()}
                   </p>
-                  <p className="text-gray-400 text-xs text-center mt-2">
-                    The amount has been refunded to your wallet
-                  </p>
+                  <div className="text-gray-400 text-xs text-center mt-2 space-y-1">
+                    <p>Withdrawal amount + Bank Electronic Charge</p>
+                    <p className="text-green-400 font-medium">100% Refundable charges returned to wallet</p>
+                  </div>
                 </div>
 
                 <motion.button
