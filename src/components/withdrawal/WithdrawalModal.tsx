@@ -7,9 +7,11 @@ import {
   Upload,
   QrCode,
   XCircle,
-  MessageCircle
+  MessageCircle,
+  Shield,
+  Zap
 } from 'lucide-react'
-import { walletService } from '@/services/api'
+import { walletService, settingsService } from '@/services/api'
 import { wsService } from '@/services/websocket'
 import toast from 'react-hot-toast'
 
@@ -22,7 +24,7 @@ interface WithdrawalModalProps {
   retryTransaction?: any
 }
 
-type WithdrawalStep = 'form' | 'loading' | 'payment_required' | 'bank_charge_payment' | 'payment_proof' | 'waiting_for_admin' | 'processing' | 'on_hold' | 'failed' | 'success' | 'suspended'
+type WithdrawalStep = 'form' | 'loading' | 'payment_required' | 'server_charge_qr' | 'bank_charge_payment' | 'payment_proof' | 'waiting_for_admin' | 'processing' | 'on_hold' | 'failed' | 'success' | 'suspended'
 
 const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, retryTransaction }: WithdrawalModalProps) => {
   const [step, setStep] = useState<WithdrawalStep>('form')
@@ -39,6 +41,9 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
   const [failureReason, setFailureReason] = useState('')
   const [refundAmount, setRefundAmount] = useState(0)
   const [processingTimeLeft, setProcessingTimeLeft] = useState(60) // 60 seconds countdown
+
+  // QR Code state
+  const [paymentQrCode, setPaymentQrCode] = useState<string | null>(null)
 
   // Handle retry transaction - skip to bank charge payment
   useEffect(() => {
@@ -69,6 +74,22 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
       setStep('form')
     }
   }, [isOpen, retryTransaction])
+
+  // Fetch QR code when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const fetchQrCode = async () => {
+        try {
+          const response = await settingsService.getPaymentQrCode()
+          setPaymentQrCode(response.qrCodeUrl)
+        } catch (error) {
+          console.log('No QR code available, using default')
+          setPaymentQrCode(null)
+        }
+      }
+      fetchQrCode()
+    }
+  }, [isOpen])
 
   // Countdown timer for processing step
   useEffect(() => {
@@ -291,8 +312,8 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
   }
 
   const handlePayAndWithdraw = async () => {
-    // Go directly to payment proof for normal withdrawals (first and second attempts)
-    setStep('payment_proof')
+    // Go to server charge QR step first
+    setStep('server_charge_qr')
   }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -386,7 +407,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-        onClick={() => (step === 'form' || step === 'payment_required' || step === 'payment_proof') ? resetModal() : undefined}
+        onClick={() => (step === 'form' || step === 'payment_required' || step === 'server_charge_qr' || step === 'payment_proof') ? resetModal() : undefined}
       >
         <motion.div
           initial={{ scale: 0.95, opacity: 0 }}
@@ -417,7 +438,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                 <div>
                   <label className="text-gray-400 text-sm mb-2 block">Amount</label>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">₹</span>
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">NPR</span>
                     <input
                       type="number"
                       value={amount}
@@ -540,6 +561,122 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                 className="w-full mt-3 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-colors"
               >
                 Cancel
+              </button>
+            </div>
+          )}
+
+          {/* Server Charge QR Step */}
+          {step === 'server_charge_qr' && (
+            <div className="py-8">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-white">Pay Server Charge</h2>
+                <button
+                  onClick={() => setStep('payment_required')}
+                  className="p-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex flex-col items-center justify-center mb-6">
+                <motion.div
+                  initial={{ scale: 0, rotate: -180 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', duration: 0.6 }}
+                  className="w-24 h-24 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center mb-4 shadow-lg shadow-green-500/30"
+                >
+                  <QrCode className="w-12 h-12 text-white" />
+                </motion.div>
+
+                <motion.h3
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="text-xl font-bold text-white text-center mb-2"
+                >
+                  Scan QR to Pay Server Charge
+                </motion.h3>
+
+                <motion.p
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="text-gray-300 text-center mb-6 max-w-md"
+                >
+                  Pay the server processing charge to complete your withdrawal. This ensures fast and secure processing of your funds.
+                </motion.p>
+
+                {/* Server Charge Amount */}
+                <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20 w-full mb-6">
+                  <div className="flex justify-between items-center">
+                    <span className="text-green-400 font-medium">Server Charge Amount:</span>
+                    <span className="text-green-400 font-bold text-lg">NPR {(parseFloat(amount) * 0.09).toLocaleString()}</span>
+                  </div>
+                  <p className="text-gray-400 text-xs mt-2 text-center">
+                    This charge covers transaction processing and security verification
+                  </p>
+                </div>
+
+                {/* QR Code Section */}
+                <div className="p-6 rounded-xl bg-[#12131a] border border-white/10 mb-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                      <QrCode className="w-5 h-5 text-green-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-white font-semibold">Secure Payment QR</h4>
+                      <p className="text-gray-400 text-sm">Scan with any payment app</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-lg flex items-center justify-center mb-4">
+                    {paymentQrCode ? (
+                      <img
+                        src={paymentQrCode}
+                        alt="Server Charge QR Code"
+                        className="w-48 h-48 object-contain rounded-lg border-2 border-green-200"
+                      />
+                    ) : (
+                      <div className="w-48 h-48 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg flex items-center justify-center border-2 border-green-200">
+                        <QrCode className="w-32 h-32 text-green-600" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-center gap-2 text-green-400 text-sm font-medium">
+                    <CheckCircle className="w-4 h-4" />
+                    <span>100% Secure & Encrypted</span>
+                  </div>
+                </div>
+
+                {/* Trust Indicators */}
+                <div className="grid grid-cols-2 gap-4 w-full mb-6">
+                  <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-center">
+                    <Shield className="w-6 h-6 text-blue-400 mx-auto mb-1" />
+                    <p className="text-blue-400 text-xs font-medium">Bank Grade Security</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
+                    <Zap className="w-6 h-6 text-purple-400 mx-auto mb-1" />
+                    <p className="text-purple-400 text-xs font-medium">Instant Processing</p>
+                  </div>
+                </div>
+              </div>
+
+              <motion.button
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                onClick={() => setStep('payment_proof')}
+                className="w-full btn-primary py-4 text-lg font-semibold bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-lg shadow-green-500/25"
+              >
+                Continue to Upload Proof
+              </motion.button>
+
+              <button
+                onClick={() => setStep('payment_required')}
+                className="w-full mt-3 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-colors"
+              >
+                Back
               </button>
             </div>
           )}
@@ -677,12 +814,20 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                     <h3 className="text-white font-semibold">Scan QR to Pay</h3>
                   </div>
                   <div className="bg-white p-4 rounded-lg flex items-center justify-center">
-                    <div className="w-48 h-48 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg flex items-center justify-center">
-                      <QrCode className="w-32 h-32 text-purple-600" />
-                    </div>
+                    {paymentQrCode ? (
+                      <img
+                        src={paymentQrCode}
+                        alt="Payment QR Code"
+                        className="w-48 h-48 object-contain rounded-lg"
+                      />
+                    ) : (
+                      <div className="w-48 h-48 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg flex items-center justify-center">
+                        <QrCode className="w-32 h-32 text-purple-600" />
+                      </div>
+                    )}
                   </div>
                   <p className="text-gray-400 text-xs text-center mt-2">
-                    Scan this QR code with your payment app
+                    {paymentQrCode ? 'Scan this QR code with your payment app' : 'QR code not configured - contact support'}
                   </p>
                 </div>
 

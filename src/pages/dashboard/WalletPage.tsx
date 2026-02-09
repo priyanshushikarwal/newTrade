@@ -10,46 +10,24 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  CreditCard,
-  Building2,
   Copy,
   Info,
   X,
   Loader2,
   MessageCircle,
-  ChevronDown,
-  Download
+  Download,
+  Upload,
+  QrCode
 } from 'lucide-react'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import { settingsService, walletService } from '@/services/api'
 import wsService from '@/services/websocket'
-import { Transaction } from '@/types'
+import { Transaction, WalletBalance } from '@/types'
 import { setBalance } from '@/store/slices/walletSlice'
 import toast from 'react-hot-toast'
 import { WithdrawalModal, UnholdAccountModal } from '@/components/withdrawal'
 
 type TransactionType = 'all' | 'deposit' | 'withdrawal' | 'trade'
-
-const NEPALI_BANKS = [
-  'Nepal Bank Limited',
-  'Rastriya Banijya Bank',
-  'Agricultural Development Bank',
-  'Nepal Investment Bank',
-  'Himalayan Bank Limited',
-  'Standard Chartered Bank Nepal',
-  'Kumari Bank Limited',
-  'Siddhartha Bank Limited',
-  'Nabil Bank Limited',
-  'Nepal SBI Bank Limited',
-  'Nepal Merchant Bank Limited',
-  'Bank of Kathmandu Limited',
-  'Global Bank Limited',
-  'Citizens Bank International Limited',
-  'Prime Bank Limited',
-  'Bank of Asia Nepal Limited',
-  'Machhapuchchhre Bank Limited',
-  'Laxmi Falling Bank Limited'
-]
 
 const WalletPage = () => {
   const dispatch = useAppDispatch()
@@ -58,8 +36,6 @@ const WalletPage = () => {
   const [activeModal, setActiveModal] = useState<'deposit' | 'withdraw' | null>(null)
   const [filterType, setFilterType] = useState<TransactionType>('all')
   const [depositAmount, setDepositAmount] = useState('')
-  const [discountCode, setDiscountCode] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState('bank')
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loadingTransactions, setLoadingTransactions] = useState(true)
   
@@ -72,7 +48,7 @@ const WalletPage = () => {
   const testBalanceUpdate = async () => {
     console.log('🧪 Testing manual balance update...')
     try {
-      const serverBalance = await walletService.getBalance()
+      const serverBalance = await walletService.getBalance() as WalletBalance
       console.log('🧪 Server balance fetched:', serverBalance)
       dispatch(setBalance(serverBalance))
       console.log('🧪 Balance manually updated')
@@ -81,16 +57,13 @@ const WalletPage = () => {
     }
   }
   
-  // Bank details state
-  const [selectedBank, setSelectedBank] = useState('')
-  const [accountNumber, setAccountNumber] = useState('')
-  const [ifscCode, setIfscCode] = useState('')
-  const [showBankDropdown, setShowBankDropdown] = useState(false)
-  
   // Deposit states
   const [depositStatus, setDepositStatus] = useState<'idle' | 'loading' | 'failed'>('idle')
   const [depositStep, setDepositStep] = useState<'form' | 'qr' | 'upload'>('form')
   const [paymentProof, setPaymentProof] = useState<File | null>(null)
+  
+  // QR Code state
+  const [paymentQrCode, setPaymentQrCode] = useState<string | null>(null)
   
   // WhatsApp number from server
   const [whatsappNumber, setWhatsappNumber] = useState('919876543210')
@@ -127,13 +100,22 @@ const WalletPage = () => {
     t.type === 'withdrawal' && t.status === 'on_hold'
   )
 
-  // Fetch WhatsApp number from server
+  // Fetch WhatsApp number and QR code from server
   useEffect(() => {
     const fetchSettings = async () => {
       try {
         const whatsappData = await settingsService.getWhatsappNumber()
         if (whatsappData?.whatsappNumber) {
           setWhatsappNumber(whatsappData.whatsappNumber)
+        }
+
+        // Fetch payment QR code
+        try {
+          const qrData = await settingsService.getPaymentQrCode()
+          setPaymentQrCode(qrData.qrCodeUrl)
+        } catch (error) {
+          console.error('Failed to fetch QR code:', error)
+          setPaymentQrCode(null)
         }
       } catch (error) {
         console.error('Failed to fetch settings:', error)
@@ -234,22 +216,25 @@ const WalletPage = () => {
             
             // Fetch the correct balance breakdown from server
             walletService.getBalance().then((serverBalance) => {
-              console.log(`💵 Server balance received:`, serverBalance)
-              console.log(`💵 Balance breakdown - Available: ${serverBalance.available}, Total: ${serverBalance.total}`)
-              dispatch(setBalance(serverBalance))
+              const balance = serverBalance as WalletBalance
+              console.log(`💵 Server balance received:`, balance)
+              console.log(`💵 Balance breakdown - Available: ${balance.available}, Total: ${balance.total}`)
+              dispatch(setBalance(balance))
               console.log(`💵 Redux balance updated with server data`)
-              console.log(`💵 New Redux state should be:`, serverBalance)
+              console.log(`💵 New Redux state should be:`, balance)
             }).catch((error) => {
               console.error('Failed to get updated balance:', error)
               // Fallback: assume newBalance is total and calculate available
-              const fallbackBalance = {
-                available: data.newBalance,
-                blocked: 0,
-                invested: 0,
-                total: data.newBalance
+              if (data.newBalance !== undefined) {
+                const fallbackBalance: WalletBalance = {
+                  available: data.newBalance,
+                  blocked: 0,
+                  invested: 0,
+                  total: data.newBalance
+                }
+                console.log(`💵 Using fallback balance:`, fallbackBalance)
+                dispatch(setBalance(fallbackBalance))
               }
-              console.log(`💵 Using fallback balance:`, fallbackBalance)
-              dispatch(setBalance(fallbackBalance))
             })
             
             // For balance updates, also refresh transactions
@@ -284,6 +269,26 @@ const WalletPage = () => {
               duration: 3000,
               icon: '✅'
             })
+          } else if (data.status === 'on_hold') {
+            toast.error('Your account has been put on hold due to multiple failed withdrawals. Please pay the unhold charges to restore access.', {
+              duration: 8000,
+              icon: '⏸️',
+              style: {
+                background: '#1a1b23',
+                color: '#fff',
+                border: '1px solid rgba(249, 115, 22, 0.3)'
+              }
+            })
+            // Force refresh transactions to show unhold button
+            setTimeout(() => {
+              walletService.getTransactions().then((transactionData) => {
+                setTransactions(transactionData || [])
+                console.log(`📊 Transactions refreshed for on_hold status, count: ${transactionData?.length || 0}`)
+                console.log('🔍 Checking for on_hold transactions:', transactionData?.filter(t => t.status === 'on_hold'))
+              }).catch((error) => {
+                console.error('Failed to refresh transactions for on_hold:', error)
+              })
+            }, 1000) // Small delay to ensure server has updated
           }
         } else {
           console.log('❌ User ID does not match')
@@ -335,12 +340,27 @@ const WalletPage = () => {
       return
     }
 
+    // Show QR code step
+    setDepositStep('qr')
+  }
+
+  const handleQrContinue = () => {
+    // After viewing QR, show upload proof step
+    setDepositStep('upload')
+  }
+
+  const handleUploadProof = async () => {
+    if (!paymentProof) {
+      toast.error('Please upload payment proof')
+      return
+    }
+
+    const amount = parseFloat(depositAmount)
     setDepositStatus('loading')
     
     try {
-      const depositResult = await walletService.deposit(amount, paymentMethod, discountCode)
-      const bonusText = discountCode === 'x100' ? ` + NPR ${amount} bonus` : ''
-      toast.success(`Deposited NPR ${amount}${bonusText} successfully!`)
+      const depositResult = await walletService.deposit(amount, 'bank', '')
+      toast.success(`Deposited NPR ${amount} successfully!`)
       setDepositStatus('idle')
       resetDepositModal()
 
@@ -368,13 +388,9 @@ const WalletPage = () => {
   const resetDepositModal = () => {
     setActiveModal(null)
     setDepositAmount('')
-    setDiscountCode('')
     setDepositStatus('idle')
     setDepositStep('form')
     setPaymentProof(null)
-    setSelectedBank('')
-    setAccountNumber('')
-    setIfscCode('')
   }
 
   const filteredTransactions = transactions.filter(t => {
@@ -594,7 +610,7 @@ const WalletPage = () => {
           <p className="text-2xl font-bold text-white mb-4">NPR {balance.total.toLocaleString()}</p>
           <div className="flex items-center gap-2 text-sm">
             <span className="text-gray-400">Invested:</span>
-            <span className="text-purple-400 font-medium">₹{balance.invested.toLocaleString()}</span>
+            <span className="text-purple-400 font-medium">NPR {balance.invested.toLocaleString()}</span>
           </div>
         </motion.div>
       </div>
@@ -777,13 +793,28 @@ const WalletPage = () => {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-white">Deposit Funds</h2>
+                <h2 className="text-xl font-bold text-white">
+                  {depositStep === 'form' && 'Deposit Funds'}
+                  {depositStep === 'qr' && 'Scan QR Code'}
+                  {depositStep === 'upload' && 'Upload Payment Proof'}
+                </h2>
                 <button
                   onClick={resetDepositModal}
                   className="p-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
+              </div>
+
+              {/* Step Indicator */}
+              <div className="flex items-center justify-center mb-6">
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${depositStep === 'form' ? 'bg-purple-500' : 'bg-gray-600'}`}></div>
+                  <div className={`w-6 h-0.5 ${depositStep === 'qr' || depositStep === 'upload' ? 'bg-purple-500' : 'bg-gray-600'}`}></div>
+                  <div className={`w-3 h-3 rounded-full ${depositStep === 'qr' ? 'bg-purple-500' : depositStep === 'upload' ? 'bg-purple-500' : 'bg-gray-600'}`}></div>
+                  <div className={`w-6 h-0.5 ${depositStep === 'upload' ? 'bg-purple-500' : 'bg-gray-600'}`}></div>
+                  <div className={`w-3 h-3 rounded-full ${depositStep === 'upload' ? 'bg-purple-500' : 'bg-gray-600'}`}></div>
+                </div>
               </div>
 
               {/* Failed State */}
@@ -820,7 +851,7 @@ const WalletPage = () => {
                       transition={{ delay: 0.5 }}
                       className="text-gray-400 text-center mb-6 max-w-xs"
                     >
-                      We're experiencing server issues at the moment. Please contact our support team to complete your deposit of ₹{parseFloat(depositAmount).toLocaleString()}.
+                      We're experiencing server issues at the moment. Please contact our support team to complete your deposit of NPR {parseFloat(depositAmount).toLocaleString()}.
                     </motion.p>
 
                     <motion.div
@@ -857,172 +888,165 @@ const WalletPage = () => {
                 </div>
               )}
 
-              {/* Normal Form State */}
-              {depositStatus !== 'failed' && (
+              {/* Form Step */}
+              {depositStep === 'form' && depositStatus !== 'failed' && (
                 <div className="space-y-4">
-                {/* Amount Input */}
-                <div>
-                  <label className="text-gray-400 text-sm mb-2 block">Amount</label>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">NPR</span>
-                    <input
-                      type="number"
-                      value={depositAmount}
-                      onChange={(e) => setDepositAmount(e.target.value)}
-                      placeholder="0"
-                      className="input-glass pl-16 text-2xl font-bold w-full"
-                    />
-                  </div>
-                </div>
-
-                {/* Discount Code */}
-                <div>
-                  <label className="text-gray-400 text-sm mb-2 block">Discount Code (Optional)</label>
-                  <input
-                    type="text"
-                    value={discountCode}
-                    onChange={(e) => setDiscountCode(e.target.value)}
-                    placeholder="Enter x100 for 100% bonus"
-                    className="input-glass w-full"
-                  />
-                  {discountCode === 'x100' && (
-                    <p className="text-green-400 text-xs mt-1 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3" />
-                      100% bonus will be applied! You'll get NPR {parseFloat(depositAmount || '0') * 2}
-                    </p>
-                  )}
-                </div>
-
-                {/* Quick Amounts */}
-                <div className="grid grid-cols-3 gap-2">
-                  {quickAmounts.map((amount) => (
-                    <button
-                      key={amount}
-                      onClick={() => setDepositAmount(amount.toString())}
-                      className={`py-2 rounded-xl text-sm font-medium transition-colors ${
-                        depositAmount === amount.toString()
-                          ? 'bg-purple-500 text-white'
-                          : 'bg-white/5 text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      NPR {amount.toLocaleString()}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Payment Method */}
-                <div>
-                  <label className="text-gray-400 text-sm mb-2 block">Payment Method</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setPaymentMethod('bank')}
-                      className={`p-3 rounded-xl border transition-colors flex flex-col items-center gap-2 ${
-                        paymentMethod === 'bank'
-                          ? 'border-purple-500 bg-purple-500/10'
-                          : 'border-white/10 hover:border-white/20'
-                      }`}
-                    >
-                      <Building2 className="w-5 h-5 text-gray-400" />
-                      <span className="text-white text-sm">Bank</span>
-                    </button>
-                    <button
-                      onClick={() => setPaymentMethod('card')}
-                      className={`p-3 rounded-xl border transition-colors flex flex-col items-center gap-2 ${
-                        paymentMethod === 'card'
-                          ? 'border-purple-500 bg-purple-500/10'
-                          : 'border-white/10 hover:border-white/20'
-                      }`}
-                    >
-                      <CreditCard className="w-5 h-5 text-gray-400" />
-                      <span className="text-white text-sm">Card</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Bank Details Section - Show when Bank is selected */}
-                {paymentMethod === 'bank' && (
-                  <div className="space-y-3 p-4 rounded-xl bg-white/5 border border-white/10">
-                    {/* Bank Selection Dropdown */}
-                    <div>
-                      <label className="text-gray-400 text-sm mb-2 block">Select Bank</label>
-                      <div className="relative">
-                        <button
-                          onClick={() => setShowBankDropdown(!showBankDropdown)}
-                          className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white flex items-center justify-between hover:border-white/20 transition-colors"
-                        >
-                          <span>{selectedBank || 'Select a bank...'}</span>
-                          <ChevronDown className={`w-4 h-4 transition-transform ${showBankDropdown ? 'rotate-180' : ''}`} />
-                        </button>
-                        
-                        {showBankDropdown && (
-                          <div className="absolute top-full left-0 right-0 mt-2 bg-[#12131a] border border-white/10 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
-                            {NEPALI_BANKS.map((bank) => (
-                              <button
-                                key={bank}
-                                onClick={() => {
-                                  setSelectedBank(bank)
-                                  setShowBankDropdown(false)
-                                }}
-                                className="w-full text-left px-4 py-3 hover:bg-white/5 text-white text-sm transition-colors"
-                              >
-                                {bank}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Account Number */}
-                    <div>
-                      <label className="text-gray-400 text-sm mb-2 block">Account Number</label>
+                  {/* Amount Input */}
+                  <div>
+                    <label className="text-gray-400 text-sm mb-2 block">Amount</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">NPR</span>
                       <input
-                        type="text"
-                        value={accountNumber}
-                        onChange={(e) => setAccountNumber(e.target.value)}
-                        placeholder="Enter your account number"
-                        className="input-glass w-full"
-                      />
-                    </div>
-
-                    {/* IFSC Code */}
-                    <div>
-                      <label className="text-gray-400 text-sm mb-2 block">IFSC Code</label>
-                      <input
-                        type="text"
-                        value={ifscCode}
-                        onChange={(e) => setIfscCode(e.target.value.toUpperCase())}
-                        placeholder="e.g., NABIL0000001"
-                        className="input-glass w-full"
+                        type="number"
+                        value={depositAmount}
+                        onChange={(e) => setDepositAmount(e.target.value)}
+                        placeholder="0"
+                        className="input-glass pl-16 text-2xl font-bold w-full"
                       />
                     </div>
                   </div>
-                )}
 
-                {/* Info */}
-                <div className="p-3 rounded-xl bg-warning/10 border border-warning/20">
-                  {/* <p className="text-warning text-sm flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    Deposits require manual approval by admin. This is a demo feature.
-                  </p> */}
-                </div>
+                  {/* Quick Amounts */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {quickAmounts.map((amount) => (
+                      <button
+                        key={amount}
+                        onClick={() => setDepositAmount(amount.toString())}
+                        className={`py-2 rounded-xl text-sm font-medium transition-colors ${
+                          depositAmount === amount.toString()
+                            ? 'bg-purple-500 text-white'
+                            : 'bg-white/5 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        NPR {amount.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
 
-                <button 
-                  onClick={handleDepositRequest}
-                  disabled={depositStatus === 'loading' || !depositAmount}
-                  className="w-full btn-primary py-4 text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {depositStatus === 'loading' ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    'Request Deposit'
-                  )}
-                </button>
+                  <button
+                    onClick={handleDepositRequest}
+                    disabled={!depositAmount}
+                    className="w-full btn-primary py-4 text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Continue to Payment
+                  </button>
                 </div>
               )}
+
+              {/* QR Code Step */}
+              {depositStep === 'qr' && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="w-48 h-48 mx-auto bg-white rounded-xl flex items-center justify-center mb-4">
+                      {paymentQrCode ? (
+                        <img src={paymentQrCode} alt="Payment QR Code" className="w-48 h-48 object-contain rounded-lg" />
+                      ) : (
+                        <QrCode className="w-32 h-32 text-purple-600" />
+                      )}
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 mb-4">
+                      <p className="text-purple-400 font-semibold text-lg">NPR {parseFloat(depositAmount).toLocaleString()}</p>
+                      <p className="text-gray-400 text-sm">Amount to pay</p>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 mb-6">
+                      <p className="text-blue-400 text-sm">
+                        {paymentQrCode 
+                          ? 'Scan the QR code above using your banking app or UPI app to make the payment. After successful payment, click continue to upload your payment proof.'
+                          : 'QR code not configured - contact support'
+                        }
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setDepositStep('form')}
+                      className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-colors"
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={handleQrContinue}
+                      className="flex-1 py-3 rounded-xl bg-purple-500 hover:bg-purple-500/90 text-white font-medium transition-colors"
+                    >
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload Proof Step */}
+              {depositStep === 'upload' && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20 mb-4">
+                      <p className="text-green-400 font-semibold text-lg">NPR {parseFloat(depositAmount).toLocaleString()}</p>
+                      <p className="text-gray-400 text-sm">Deposit Amount</p>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 mb-6">
+                      <p className="text-blue-400 text-sm">
+                        Please upload a screenshot or photo of your successful payment as proof. This will be verified by our admin team.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* File Upload */}
+                  <div>
+                    <label className="text-gray-400 text-sm mb-2 block">Payment Proof</label>
+                    <div className="border-2 border-dashed border-white/20 rounded-xl p-6 text-center hover:border-white/30 transition-colors">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setPaymentProof(e.target.files?.[0] || null)}
+                        className="hidden"
+                        id="payment-proof"
+                      />
+                      <label htmlFor="payment-proof" className="cursor-pointer">
+                        {paymentProof ? (
+                          <div className="space-y-2">
+                            <CheckCircle className="w-8 h-8 text-green-400 mx-auto" />
+                            <p className="text-white font-medium">{paymentProof.name}</p>
+                            <p className="text-gray-400 text-sm">Click to change file</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <Upload className="w-8 h-8 text-gray-400 mx-auto" />
+                            <p className="text-white font-medium">Click to upload payment proof</p>
+                            <p className="text-gray-400 text-sm">PNG, JPG, JPEG up to 10MB</p>
+                          </div>
+                        )}
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setDepositStep('qr')}
+                      className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-colors"
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={handleUploadProof}
+                      disabled={depositStatus === 'loading' || !paymentProof}
+                      className="flex-1 py-3 rounded-xl bg-green-500 hover:bg-green-500/90 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {depositStatus === 'loading' ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        'Submit Deposit'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
             </motion.div>
           </motion.div>
         )}

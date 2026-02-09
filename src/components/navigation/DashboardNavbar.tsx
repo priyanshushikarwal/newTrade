@@ -95,7 +95,7 @@ const DashboardNavbar = () => {
           <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-[#12131a]/80 border border-white/10">
             <Wallet className="w-4 h-4 text-purple-400" />
             <span className="text-sm font-semibold text-white">
-              ₹{balance.available.toLocaleString()}
+              NPR {balance.available.toLocaleString()}
             </span>
           </div>
 

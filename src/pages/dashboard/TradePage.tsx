@@ -506,7 +506,7 @@ const TradePage = () => {
   const potentialProfit = parseFloat(tradeAmount) * 0.5 || 0
 
   return (
-    <div className="h-[calc(100vh-80px)] flex flex-col gap-3 overflow-hidden relative">
+    <div className="h-[calc(100vh-80px)] flex flex-col gap-2 md:gap-3 overflow-hidden relative">
       {/* Trade Result Modal */}
       <AnimatePresence>
         {showResultModal && lastResult && (
@@ -514,10 +514,10 @@ const TradePage = () => {
             initial={{ opacity: 0, scale: 0.8, y: -50 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: -50 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
           >
             <motion.div
-              className={`glass-card p-8 rounded-2xl text-center ${
+              className={`glass-card p-6 md:p-8 rounded-2xl text-center w-full max-w-sm mx-4 ${
                 lastResult.result === 'win' ? 'border-2 border-success' : 'border-2 border-danger'
               }`}
             >
@@ -525,15 +525,15 @@ const TradePage = () => {
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ delay: 0.2, type: 'spring' }}
-                className={`w-20 h-20 rounded-full mx-auto mb-4 flex items-center justify-center ${
+                className={`w-16 h-16 md:w-20 md:h-20 rounded-full mx-auto mb-4 flex items-center justify-center ${
                   lastResult.result === 'win' ? 'bg-emerald-500/20' : 'bg-danger/20'
                 }`}
               >
-                <CheckCircle className={`w-10 h-10 ${
+                <CheckCircle className={`w-8 h-8 md:w-10 md:h-10 ${
                   lastResult.result === 'win' ? 'text-emerald-400' : 'text-danger'
                 }`} />
               </motion.div>
-              <h2 className={`text-2xl font-bold mb-2 ${
+              <h2 className={`text-xl md:text-2xl font-bold mb-2 ${
                 lastResult.result === 'win' ? 'text-emerald-400' : 'text-danger'
               }`}>
                 {lastResult.result === 'win' ? 'You Won!' : 'Trade Lost'}
@@ -542,12 +542,12 @@ const TradePage = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.3 }}
-                className="text-3xl font-bold text-white mb-2"
+                className="text-2xl md:text-3xl font-bold text-white mb-2"
               >
                 {lastResult.result === 'win' ? '+' : ''}{lastResult.profit.toFixed(2)} USDT
               </motion.p>
-              <p className="text-gray-400 text-sm">
-                Entry: ${lastResult.entryPrice.toLocaleString()} → Exit: ${lastResult.exitPrice.toLocaleString()}
+              <p className="text-gray-400 text-xs md:text-sm">
+                Entry: NPR {lastResult.entryPrice.toLocaleString()} → Exit: NPR {lastResult.exitPrice.toLocaleString()}
               </p>
             </motion.div>
           </motion.div>
@@ -561,26 +561,26 @@ const TradePage = () => {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="absolute top-16 left-1/2 -translate-x-1/2 z-40"
+            className="absolute top-16 left-1/2 -translate-x-1/2 z-40 md:left-1/2"
           >
-            <div className={`glass-card px-6 py-3 rounded-full flex items-center gap-4 border-2 ${
+            <div className={`glass-card px-4 py-2 md:px-6 md:py-3 rounded-full flex items-center gap-3 md:gap-4 border-2 ${
               activeTrade.type === 'buy' ? 'border-emerald-400' : 'border-danger'
             }`}>
-              <div className={`p-2 rounded-full ${
+              <div className={`p-1.5 md:p-2 rounded-full ${
                 activeTrade.type === 'buy' ? 'bg-emerald-500/20' : 'bg-danger/20'
               }`}>
                 {activeTrade.type === 'buy' ? (
-                  <TrendingUp className="w-5 h-5 text-emerald-400" />
+                  <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-emerald-400" />
                 ) : (
-                  <TrendingDown className="w-5 h-5 text-danger" />
+                  <TrendingDown className="w-4 h-4 md:w-5 md:h-5 text-danger" />
                 )}
               </div>
-              <div>
+              <div className="hidden sm:block">
                 <p className="text-white font-semibold">
-                  {activeTrade.type.toUpperCase()} ${activeTrade.amount}
+                  {activeTrade.type.toUpperCase()} NPR {activeTrade.amount}
                 </p>
                 <p className="text-gray-400 text-xs">
-                  Entry: ${activeTrade.entryPrice.toLocaleString()}
+                  Entry: NPR {activeTrade.entryPrice.toLocaleString()}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -589,33 +589,33 @@ const TradePage = () => {
                   key={tradeTimeRemaining}
                   initial={{ scale: 1.1 }}
                   animate={{ scale: 1 }}
-                  className="text-white font-mono text-lg"
+                  className="text-white font-mono text-sm md:text-lg"
                 >
                   {Math.ceil(tradeTimeRemaining / 1000)}s
                 </motion.span>
               </div>
-              <Loader2 className="w-5 h-5 text-purple-400 animate-spin" />
+              <Loader2 className="w-4 h-4 md:w-5 md:h-5 text-purple-400 animate-spin" />
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Top Header Bar */}
-      <div className="glass-card px-4 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-6">
+      <div className="glass-card px-3 md:px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-3 md:gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xs font-bold">
+            <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xs font-bold">
               ₿
             </div>
             <div>
               <div className="flex items-center gap-1">
-                <span className="text-white font-semibold">{stockConfig.symbol}</span>
-                <ChevronDown className="w-4 h-4 text-gray-400" />
+                <span className="text-white font-semibold text-sm md:text-base">{stockConfig.symbol}</span>
+                <ChevronDown className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
               </div>
             </div>
           </div>
           
-          <div className="flex items-center gap-6 text-sm">
+          <div className="hidden lg:flex items-center gap-6 text-sm">
             <div>
               <span className="text-gray-400">24h High</span>
               <p className="text-emerald-400 font-medium">{stats.high24h.toLocaleString()}</p>
@@ -632,32 +632,32 @@ const TradePage = () => {
         </div>
 
         {/* Balance Display */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 md:gap-4">
           <div className="text-right">
             <p className="text-gray-400 text-xs">Balance</p>
             <motion.p
               key={Math.floor(displayedBalance)}
-              className="text-white font-bold text-lg"
+              className="text-white font-bold text-sm md:text-lg"
             >
-              ${displayedBalance.toFixed(2)}
+              NPR {displayedBalance.toFixed(2)}
             </motion.p>
           </div>
           <button
             onClick={() => setIsLive(!isLive)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`flex items-center gap-1 md:gap-1.5 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-xs font-medium transition-all ${
               isLive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-400'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-400'}`} />
-            {isLive ? 'LIVE' : 'PAUSED'}
+            <span className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${isLive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-400'}`} />
+            <span className="hidden sm:inline">{isLive ? 'LIVE' : 'PAUSED'}</span>
           </button>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 grid grid-cols-12 gap-3 min-h-0">
-        {/* Left - Order Book */}
-        <div className="col-span-2 glass-card flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col lg:grid lg:grid-cols-12 gap-2 md:gap-3 min-h-0 overflow-hidden">
+        {/* Order Book - Hidden on mobile, shown on desktop */}
+        <div className="hidden lg:flex lg:col-span-2 glass-card flex-col min-h-0">
           <div className="flex border-b border-white/10">
             <button
               onClick={() => setOrderBookTab('orderbook')}
@@ -730,13 +730,13 @@ const TradePage = () => {
           </div>
         </div>
 
-        {/* Center - Chart */}
-        <div className="col-span-7 glass-card flex flex-col min-h-0">
+        {/* Chart - Takes full width on mobile, 7 cols on desktop */}
+        <div className="flex-1 w-full lg:col-span-7 glass-card flex flex-col min-h-0 order-first lg:order-none">
           <div className="flex items-center justify-between p-2 border-b border-white/10">
             <div className="flex gap-1">
               <button
                 onClick={() => setChartType('candle')}
-                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                className={`px-2 md:px-3 py-1.5 rounded text-xs md:text-sm font-medium transition-colors ${
                   chartType === 'candle' ? 'bg-white/5 text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -744,7 +744,7 @@ const TradePage = () => {
               </button>
               <button
                 onClick={() => setChartType('depth')}
-                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                className={`px-2 md:px-3 py-1.5 rounded text-xs md:text-sm font-medium transition-colors ${
                   chartType === 'depth' ? 'bg-white/5 text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -752,25 +752,25 @@ const TradePage = () => {
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button className="p-1.5 rounded hover:bg-white/5 transition-colors">
-                <Camera className="w-4 h-4 text-gray-400" />
+            <div className="flex items-center gap-1 md:gap-2">
+              <button className="p-1 md:p-1.5 rounded hover:bg-white/5 transition-colors">
+                <Camera className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
               </button>
-              <button className="p-1.5 rounded hover:bg-white/5 transition-colors">
-                <Square className="w-4 h-4 text-gray-400" />
+              <button className="p-1 md:p-1.5 rounded hover:bg-white/5 transition-colors">
+                <Square className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
               </button>
-              <button className="p-1.5 rounded hover:bg-white/5 transition-colors">
-                <ZoomIn className="w-4 h-4 text-gray-400" />
+              <button className="p-1 md:p-1.5 rounded hover:bg-white/5 transition-colors">
+                <ZoomIn className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
               </button>
-              <button className="p-1.5 rounded hover:bg-white/5 transition-colors">
-                <ZoomOut className="w-4 h-4 text-gray-400" />
+              <button className="p-1 md:p-1.5 rounded hover:bg-white/5 transition-colors">
+                <ZoomOut className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
               </button>
-              <button className="p-1.5 rounded hover:bg-white/5 transition-colors">
-                <Maximize2 className="w-4 h-4 text-gray-400" />
+              <button className="p-1 md:p-1.5 rounded hover:bg-white/5 transition-colors">
+                <Maximize2 className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
               </button>
-              <div className="w-px h-4 bg-white/10 mx-1" />
-              <button className="p-1.5 rounded hover:bg-white/5 transition-colors">
-                <Edit3 className="w-4 h-4 text-gray-400" />
+              <div className="w-px h-3 md:h-4 bg-white/10 mx-1" />
+              <button className="p-1 md:p-1.5 rounded hover:bg-white/5 transition-colors">
+                <Edit3 className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
               </button>
             </div>
           </div>
@@ -780,7 +780,7 @@ const TradePage = () => {
               <button
                 key={tf}
                 onClick={() => setTimeFrame(tf)}
-                className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
+                className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0 ${
                   timeFrame === tf ? 'bg-white/5 text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -795,17 +795,17 @@ const TradePage = () => {
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className={`absolute left-4 top-4 z-10 px-3 py-1.5 rounded-lg ${
+                className={`absolute left-2 md:left-4 top-4 z-10 px-2 md:px-3 py-1 md:py-1.5 rounded-lg ${
                   activeTrade.type === 'buy' ? 'bg-emerald-500/20 border border-emerald-400' : 'bg-danger/20 border border-danger'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   {activeTrade.type === 'buy' ? (
-                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                    <TrendingUp className="w-3 h-3 md:w-4 md:h-4 text-emerald-400" />
                   ) : (
-                    <TrendingDown className="w-4 h-4 text-danger" />
+                    <TrendingDown className="w-3 h-3 md:w-4 md:h-4 text-danger" />
                   )}
-                  <span className={`text-sm font-medium ${
+                  <span className={`text-xs md:text-sm font-medium ${
                     activeTrade.type === 'buy' ? 'text-emerald-400' : 'text-danger'
                   }`}>
                     {activeTrade.type === 'buy' ? 'CALL' : 'PUT'}
@@ -825,7 +825,7 @@ const TradePage = () => {
             </div>
 
             <ResponsiveContainer width="100%" height="75%">
-              <ComposedChart data={candleData} margin={{ top: 10, right: 70, left: 0, bottom: 0 }}>
+              <ComposedChart data={candleData} margin={{ top: 10, right: 50, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="greenGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#10B981" stopOpacity={0.8}/>
@@ -840,8 +840,8 @@ const TradePage = () => {
                   dataKey="time" 
                   axisLine={{ stroke: '#374151', strokeWidth: 0.5 }}
                   tickLine={false} 
-                  tick={{ fill: '#6B7280', fontSize: 11 }}
-                  interval={4}
+                  tick={{ fill: '#6B7280', fontSize: 10 }}
+                  interval={6}
                   tickFormatter={(value, index) => {
                     const baseTime = new Date()
                     baseTime.setMinutes(baseTime.getMinutes() - (50 - parseInt(value)) * 15)
@@ -852,10 +852,10 @@ const TradePage = () => {
                   domain={['dataMin - 50', 'dataMax + 50']} 
                   axisLine={false} 
                   tickLine={false} 
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#9CA3AF', fontSize: 10 }}
                   orientation="right"
                   tickFormatter={(v) => v.toLocaleString()}
-                  width={60}
+                  width={50}
                 />
                 <Tooltip
                   content={({ active, payload }) => {
@@ -868,24 +868,24 @@ const TradePage = () => {
                       baseTime.setMinutes(baseTime.getMinutes() - (50 - parseInt(data.time)) * 15)
                       
                       return (
-                        <div className="bg-[#1a1f2e]/95 backdrop-blur-sm border border-gray-700 rounded-lg p-3 shadow-xl min-w-[180px]">
+                        <div className="bg-[#1a1f2e]/95 backdrop-blur-sm border border-gray-700 rounded-lg p-2 md:p-3 shadow-xl min-w-[160px] md:min-w-[180px]">
                           <div className="space-y-1.5">
                             <div className="flex items-center justify-between">
-                              <span className="text-gray-400 text-sm">Open</span>
+                              <span className="text-gray-400 text-xs md:text-sm">Open</span>
                               <span className={`font-medium ${isUp ? 'text-emerald-400' : 'text-danger'}`}>
                                 <span className="text-gray-500 mr-1">{isUp ? '▲' : '▼'}</span>
                                 {data.open.toLocaleString()}
                               </span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-gray-400 text-sm">High</span>
+                              <span className="text-gray-400 text-xs md:text-sm">High</span>
                               <span className="text-emerald-400 font-medium">
                                 <span className="text-gray-500 mr-1">▲</span>
                                 {data.high.toLocaleString()}
                               </span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-gray-400 text-sm flex items-center gap-1">
+                              <span className="text-gray-400 text-xs md:text-sm flex items-center gap-1">
                                 <span className="w-2 h-2 rounded-full bg-purple-500"></span>
                                 Low
                               </span>
@@ -895,21 +895,21 @@ const TradePage = () => {
                               </span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-gray-400 text-sm">Close</span>
+                              <span className="text-gray-400 text-xs md:text-sm">Close</span>
                               <span className={`font-medium ${isUp ? 'text-emerald-400' : 'text-danger'}`}>
                                 <span className="text-gray-500 mr-1">{isUp ? '▲' : '▼'}</span>
                                 {data.close.toLocaleString()}
                               </span>
                             </div>
                             <div className="flex items-center justify-between pt-1 border-t border-gray-700">
-                              <span className="text-gray-400 text-sm">Change</span>
+                              <span className="text-gray-400 text-xs md:text-sm">Change</span>
                               <span className={`font-medium ${isUp ? 'text-emerald-400' : 'text-danger'}`}>
                                 <span className="text-gray-500 mr-1">{isUp ? '▲' : '▼'}</span>
                                 {isUp ? '+' : ''}{change.toFixed(0)} ({isUp ? '+' : ''}{changePercent}%)
                               </span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-gray-400 text-sm">Vol</span>
+                              <span className="text-gray-400 text-xs md:text-sm">Vol</span>
                               <span className="text-emerald-400 font-medium">
                                 <span className="text-gray-500 mr-1">▲</span>
                                 {(data.volume).toLocaleString()} BTC
@@ -956,7 +956,7 @@ const TradePage = () => {
                     const candleWidth = Math.max(width * 0.6, 4)
                     const xPos = x + (width - candleWidth) / 2
                     
-                    const yScale = props.height / (props.high - props.low || 1)
+                    const yScale = props.height / (payload.high - payload.low || 1)
                     const chartTop = props.y
                     
                     const highY = chartTop
@@ -997,7 +997,7 @@ const TradePage = () => {
             </ResponsiveContainer>
 
             <ResponsiveContainer width="100%" height="22%">
-              <BarChart data={candleData} margin={{ top: 0, right: 70, left: 0, bottom: 0 }}>
+              <BarChart data={candleData} margin={{ top: 0, right: 50, left: 0, bottom: 0 }}>
                 <XAxis dataKey="time" hide />
                 <YAxis hide />
                 <Bar dataKey="volume" radius={[2, 2, 0, 0]}>
@@ -1014,8 +1014,8 @@ const TradePage = () => {
           </div>
         </div>
 
-        {/* Right - Trading Form */}
-        <div className="col-span-3 glass-card flex flex-col min-h-0">
+        {/* Trading Form - Full width on mobile, 3 cols on desktop */}
+        <div className="lg:col-span-3 glass-card flex flex-col min-h-0 max-h-[280px] md:max-h-[350px] lg:max-h-none order-last lg:order-none">
           {/* Buy/Sell Toggle */}
           <div className="flex p-2 gap-2">
             <button
@@ -1073,16 +1073,16 @@ const TradePage = () => {
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-gray-400">Amount</span>
                 <span className="text-gray-400">
-                  Available: <span className="text-emerald-400">${balance.available.toFixed(2)}</span>
+                  Available: <span className="text-emerald-400">NPR {balance.available.toFixed(2)}</span>
                 </span>
               </div>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">NPR</span>
                 <input
                   type="number"
                   value={tradeAmount}
                   onChange={(e) => setTradeAmount(e.target.value)}
-                  className="input-glass w-full pl-7 pr-16 text-lg font-semibold"
+                  className="input-glass w-full pl-12 pr-16 text-lg font-semibold"
                   disabled={!!activeTrade}
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
@@ -1100,7 +1100,7 @@ const TradePage = () => {
                   className="py-2 rounded-lg bg-white/5 text-gray-400 text-xs hover:bg-white/10 hover:text-white transition-colors"
                   disabled={!!activeTrade}
                 >
-                  ${amount}
+                  NPR {amount}
                 </button>
               ))}
             </div>
@@ -1109,7 +1109,7 @@ const TradePage = () => {
             <div className="bg-white/5 rounded-xl p-4 space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-gray-400 text-sm">Potential Profit</span>
-                <span className="text-emerald-400 font-bold text-lg">+${potentialProfit.toFixed(2)}</span>
+                <span className="text-emerald-400 font-bold text-lg">+NPR {potentialProfit.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-400">Payout</span>
@@ -1158,117 +1158,7 @@ const TradePage = () => {
         </div>
       </div>
 
-      {/* Bottom Section */}
-      <div className="grid grid-cols-12 gap-3 h-48">
-        {/* Running Trade */}
-        <div className="col-span-3 glass-card flex flex-col">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-            <div className="flex gap-4">
-              <button
-                onClick={() => setBottomTab('running')}
-                className={`text-sm font-medium transition-colors ${
-                  bottomTab === 'running' ? 'text-white' : 'text-gray-400'
-                }`}
-              >
-                Running trade
-              </button>
-              <button
-                onClick={() => setBottomTab('history')}
-                className={`text-sm font-medium transition-colors ${
-                  bottomTab === 'history' ? 'text-white' : 'text-gray-400'
-                }`}
-              >
-                History
-              </button>
-            </div>
-            <button className="text-purple-400 text-xs flex items-center gap-1 hover:underline">
-              See All <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-3 px-3 py-1.5 text-xs text-gray-400 border-b border-white/10">
-              <span>Price</span>
-              <span className="text-center">Amount</span>
-              <span className="text-right">Time</span>
-            </div>
-            {runningTrades.map((trade, i) => (
-              <div key={i} className="grid grid-cols-3 px-3 py-1 text-xs">
-                <span className={trade.type === 'buy' ? 'text-emerald-400' : 'text-danger'}>
-                  {trade.price.toLocaleString()}
-                </span>
-                <span className="text-center text-white">{trade.amount.toFixed(2)}</span>
-                <span className="text-right text-gray-400">{trade.time}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Trade Results */}
-        <div className="col-span-9 glass-card flex flex-col">
-          <div className="flex items-center gap-4 px-3 py-2 border-b border-white/10">
-            <button
-              onClick={() => setOrderTab('active')}
-              className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                orderTab === 'active' ? 'bg-white/5 text-white' : 'text-gray-400'
-              }`}
-            >
-              Recent Trades
-            </button>
-            <button
-              onClick={() => setOrderTab('history')}
-              className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                orderTab === 'history' ? 'bg-white/5 text-white' : 'text-gray-400'
-              }`}
-            >
-              All History
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-6 px-3 py-1.5 text-xs text-gray-400 border-b border-white/10">
-              <span>Type</span>
-              <span className="text-center">Amount</span>
-              <span className="text-center">Entry</span>
-              <span className="text-center">Exit</span>
-              <span className="text-center">P/L</span>
-              <span className="text-right">Result</span>
-            </div>
-            {tradeResults.length === 0 ? (
-              <div className="flex items-center justify-center h-20 text-gray-400 text-sm">
-                No trades yet. Start trading!
-              </div>
-            ) : (
-              tradeResults.map((result) => (
-                <motion.div
-                  key={result.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="grid grid-cols-6 px-3 py-2 text-xs items-center hover:bg-white/5"
-                >
-                  <div className="flex items-center gap-2">
-                    {result.type === 'buy' ? (
-                      <TrendingUp className="w-4 h-4 text-emerald-400" />
-                    ) : (
-                      <TrendingDown className="w-4 h-4 text-danger" />
-                    )}
-                    <span className="text-white uppercase">{result.type}</span>
-                  </div>
-                  <span className="text-center text-white">${result.amount}</span>
-                  <span className="text-center text-gray-400">${result.entryPrice.toLocaleString()}</span>
-                  <span className="text-center text-gray-400">${result.exitPrice.toLocaleString()}</span>
-                  <span className={`text-center font-medium ${result.result === 'win' ? 'text-emerald-400' : 'text-danger'}`}>
-                    {result.profit >= 0 ? '+' : ''}{result.profit.toFixed(2)}
-                  </span>
-                  <span className={`text-right font-medium ${result.result === 'win' ? 'text-emerald-400' : 'text-danger'}`}>
-                    {result.result === 'win' ? '✓ WIN' : '✗ LOSS'}
-                  </span>
-                </motion.div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

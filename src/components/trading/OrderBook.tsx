@@ -157,7 +157,7 @@ const OrderBook: React.FC<OrderBookProps> = ({
         <div className="flex items-center justify-center gap-3 py-2 bg-white/5 border-y border-white/10">
           <span className="text-xs text-gray-400">Spread:</span>
           <span className="text-xs font-medium text-white">
-            ₹{spreadValue.toFixed(2)} ({spreadPercent.toFixed(2)}%)
+            NPR {spreadValue.toFixed(2)} ({spreadPercent.toFixed(2)}%)
           </span>
         </div>
       )}

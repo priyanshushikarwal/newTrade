@@ -17,10 +17,10 @@ const HowItWorksPage = () => {
       icon: UserPlus,
       number: '01',
       title: 'Create Your Account',
-      description: 'Sign up with your email or phone number. Get ₹500 NPR demo balance instantly credited to your account.',
+      description: 'Sign up with your email or phone number. Get NPR 500 demo balance instantly credited to your account.',
       details: [
         'Quick signup with email/phone',
-        'Instant ₹500 NPR demo balance',
+        'Instant NPR 500 demo balance',
         'No credit card required',
         'Complete KYC for full access',
       ],

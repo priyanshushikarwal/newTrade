@@ -39,21 +39,21 @@ const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
   const stats = [
     {
       label: 'Total Value',
-      value: `₹${data.totalValue.toLocaleString('en-IN')}`,
+      value: `NPR ${data.totalValue.toLocaleString('en-IN')}`,
       icon: HiCurrencyRupee,
       iconBg: 'bg-blue-500/20',
       iconColor: 'text-blue-400',
     },
     {
       label: 'Invested',
-      value: `₹${data.investedValue.toLocaleString('en-IN')}`,
+      value: `NPR ${data.investedValue.toLocaleString('en-IN')}`,
       icon: HiChartBar,
       iconBg: 'bg-purple-500/20',
       iconColor: 'text-purple-400',
     },
     {
       label: "Today's P&L",
-      value: `${isDayPositive ? '+' : ''}₹${Math.abs(data.dayChange).toLocaleString('en-IN')}`,
+      value: `${isDayPositive ? '+' : ''}NPR ${Math.abs(data.dayChange).toLocaleString('en-IN')}`,
       subValue: `${isDayPositive ? '+' : ''}${data.dayChangePercent.toFixed(2)}%`,
       icon: isDayPositive ? HiTrendingUp : HiTrendingDown,
       iconBg: isDayPositive ? 'bg-green-500/20' : 'bg-red-500/20',
@@ -62,7 +62,7 @@ const PortfolioOverview: React.FC<PortfolioOverviewProps> = ({
     },
     {
       label: 'Overall P&L',
-      value: `${isOverallPositive ? '+' : ''}₹${Math.abs(data.overallChange).toLocaleString('en-IN')}`,
+      value: `${isOverallPositive ? '+' : ''}NPR ${Math.abs(data.overallChange).toLocaleString('en-IN')}`,
       subValue: `${isOverallPositive ? '+' : ''}${data.overallChangePercent.toFixed(2)}%`,
       icon: isOverallPositive ? HiTrendingUp : HiTrendingDown,
       iconBg: isOverallPositive ? 'bg-green-500/20' : 'bg-red-500/20',

@@ -113,7 +113,7 @@ const ReportsPage = () => {
           className="glass-card p-4 lg:p-6"
         >
           <p className="text-gray-400 text-sm mb-2">Net P&L</p>
-          <p className="text-2xl lg:text-3xl font-bold text-emerald-400">+₹24,580</p>
+          <p className="text-2xl lg:text-3xl font-bold text-emerald-400">+NPR 24,580</p>
           <p className="text-emerald-400 text-sm flex items-center gap-1 mt-1">
             <ArrowUpRight className="w-4 h-4" />
             +12.4% vs last period
@@ -181,14 +181,14 @@ const ReportsPage = () => {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 11 }} tickFormatter={(v) => `₹${v}`} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 11 }} tickFormatter={(v) => `NPR ${v}`} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: 'rgba(14, 20, 27, 0.95)',
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: '12px',
                   }}
-                  formatter={(value: number) => [`₹${value}`, 'P&L']}
+                  formatter={(value: number) => [`NPR ${value}`, 'P&L']}
                 />
                 <Area type="monotone" dataKey="pnl" stroke="#22C55E" strokeWidth={2} fill="url(#pnlGradient)" />
               </AreaChart>
@@ -209,7 +209,7 @@ const ReportsPage = () => {
               <BarChart data={monthlyStats}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 11 }} tickFormatter={(v) => `₹${v/1000}k`} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 11 }} tickFormatter={(v) => `NPR ${v/1000}k`} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: 'rgba(14, 20, 27, 0.95)',
@@ -236,11 +236,11 @@ const ReportsPage = () => {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
           <div>
             <p className="text-gray-400 text-sm mb-1">Average Win</p>
-            <p className="text-xl font-bold text-emerald-400">₹{tradingMetrics.avgWin.toLocaleString()}</p>
+            <p className="text-xl font-bold text-emerald-400">NPR {tradingMetrics.avgWin.toLocaleString()}</p>
           </div>
           <div>
             <p className="text-gray-400 text-sm mb-1">Average Loss</p>
-            <p className="text-xl font-bold text-danger">₹{tradingMetrics.avgLoss.toLocaleString()}</p>
+            <p className="text-xl font-bold text-danger">NPR {tradingMetrics.avgLoss.toLocaleString()}</p>
           </div>
           <div>
             <p className="text-gray-400 text-sm mb-1">Max Drawdown</p>

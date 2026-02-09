@@ -220,7 +220,7 @@ const AdminUsersPage = () => {
             </div>
             <div>
               <p className="text-gray-400 text-sm">Total Balance</p>
-              <p className="text-xl font-bold text-white">₹{users.reduce((sum, u) => sum + (u.balance || 0), 0).toLocaleString()}</p>
+              <p className="text-xl font-bold text-white">NPR {users.reduce((sum, u) => sum + (u.balance || 0), 0).toLocaleString()}</p>
             </div>
           </div>
         </motion.div>
@@ -319,7 +319,7 @@ const AdminUsersPage = () => {
                         </div>
                       </td>
                       <td className="p-4">
-                        <span className="text-white font-bold">₹{(user.balance || 0).toLocaleString()}</span>
+                        <span className="text-white font-bold">NPR {(user.balance || 0).toLocaleString()}</span>
                       </td>
                       <td className="p-4">{getKycBadge(user.kycStatus)}</td>
                       <td className="p-4">
@@ -423,7 +423,7 @@ const AdminUsersPage = () => {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-400">Balance</span>
-                    <span className="text-emerald-400 font-bold">₹{(selectedUser.balance || 0).toLocaleString()}</span>
+                    <span className="text-emerald-400 font-bold">NPR {(selectedUser.balance || 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">KYC Status</span>

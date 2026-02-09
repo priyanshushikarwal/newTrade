@@ -110,7 +110,7 @@ const RecentOrders: React.FC<RecentOrdersProps> = ({
               
               <div className="flex items-center justify-between text-sm">
                 <div className="text-gray-400">
-                  {order.quantity} @ ₹{order.price.toLocaleString('en-IN')}
+                  {order.quantity} @ NPR {order.price.toLocaleString('en-IN')}
                   <span className="ml-2 text-xs">({order.orderType})</span>
                 </div>
                 <div className="text-gray-500 text-xs">

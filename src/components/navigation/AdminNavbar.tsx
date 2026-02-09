@@ -22,8 +22,8 @@ const AdminNavbar = () => {
 
   const notifications = [
     { id: '1', type: 'kyc', message: 'New KYC request from John Doe', time: '5 min ago' },
-    { id: '2', type: 'deposit', message: 'Deposit request: ₹50,000', time: '15 min ago' },
-    { id: '3', type: 'withdrawal', message: 'Withdrawal request: ₹25,000', time: '1 hour ago' },
+    { id: '2', type: 'deposit', message: 'Deposit request: NPR 50,000', time: '15 min ago' },
+    { id: '3', type: 'withdrawal', message: 'Withdrawal request: NPR 25,000', time: '1 hour ago' },
     { id: '4', type: 'support', message: 'High priority ticket opened', time: '2 hours ago' },
   ]
 

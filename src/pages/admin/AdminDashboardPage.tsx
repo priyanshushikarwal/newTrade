@@ -211,7 +211,7 @@ const AdminDashboardPage = () => {
             </div>
             <div>
               <p className="text-gray-400 text-sm">Pending Deposits</p>
-              <p className="text-2xl font-bold text-white">₹{stats.pendingDepositsAmount.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-white">NPR {stats.pendingDepositsAmount.toLocaleString()}</p>
               <p className="text-gray-400 text-xs">{stats.pendingDeposits} requests</p>
             </div>
           </div>
@@ -232,7 +232,7 @@ const AdminDashboardPage = () => {
             </div>
             <div>
               <p className="text-gray-400 text-sm">Pending Withdrawals</p>
-              <p className="text-2xl font-bold text-white">₹{stats.pendingWithdrawalsAmount.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-white">NPR {stats.pendingWithdrawalsAmount.toLocaleString()}</p>
               <p className="text-gray-400 text-xs">{stats.pendingWithdrawals} requests</p>
             </div>
           </div>
@@ -274,7 +274,7 @@ const AdminDashboardPage = () => {
                   className="flex items-center justify-between p-3 rounded-xl bg-[#12131a] hover:bg-white/10 transition-colors"
                 >
                   <div>
-                    <p className="text-white font-medium">₹{(deposit.amount || 0).toLocaleString()}</p>
+                    <p className="text-white font-medium">NPR {(deposit.amount || 0).toLocaleString()}</p>
                     <p className="text-gray-400 text-xs">{deposit.userId}</p>
                   </div>
                   <div className="text-right">

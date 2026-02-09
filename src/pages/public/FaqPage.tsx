@@ -17,15 +17,15 @@ const FaqPage = () => {
         },
         {
           question: 'How do I create an account?',
-          answer: 'Creating an account is simple. Click on "Sign Up", enter your email or phone number, create a password, and verify your account. You\'ll receive ₹500 NPR demo balance instantly upon signup.',
+          answer: 'Creating an account is simple. Click on "Sign Up", enter your email or phone number, create a password, and verify your account. You\'ll receive NPR 500 demo balance instantly upon signup.',
         },
         {
           question: 'Is TradeX free to use?',
-          answer: 'Yes, TradeX offers a free plan that includes basic features, ₹500 NPR demo balance, and access to all markets. We also offer Pro and Enterprise plans for advanced features.',
+          answer: 'Yes, TradeX offers a free plan that includes basic features, NPR 500 demo balance, and access to all markets. We also offer Pro and Enterprise plans for advanced features.',
         },
         {
           question: 'What is demo balance?',
-          answer: 'Demo balance is virtual money that you can use to practice trading. It works exactly like real money in the platform but has no actual monetary value. You receive ₹500 NPR demo balance when you sign up.',
+          answer: 'Demo balance is virtual money that you can use to practice trading. It works exactly like real money in the platform but has no actual monetary value. You receive NPR 500 demo balance when you sign up.',
         },
       ],
     },
@@ -67,7 +67,7 @@ const FaqPage = () => {
         },
         {
           question: 'Are there any fees for deposits/withdrawals?',
-          answer: 'Deposits are free. Withdrawals have a processing fee of ₹25 per request. This fee is deducted from the withdrawal amount.',
+          answer: 'Deposits are free. Withdrawals have a processing fee of NPR 25 per request. This fee is deducted from the withdrawal amount.',
         },
       ],
     },

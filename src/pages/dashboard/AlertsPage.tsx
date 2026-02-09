@@ -228,10 +228,10 @@ const AlertsPage = () => {
                       <span className="text-gray-400 text-sm">{getAlertTypeLabel(alert.type)}</span>
                     </div>
                     <p className="text-white font-bold text-xl">
-                      {alert.targetPrice ? `₹${alert.targetPrice.toLocaleString()}` : `${alert.targetPercent}%`}
+                      {alert.targetPrice ? `NPR ${alert.targetPrice.toLocaleString()}` : `${alert.targetPercent}%`}
                     </p>
                     <p className="text-gray-400 text-sm">
-                      Current: ₹{alert.currentPrice.toLocaleString()}
+                      Current: NPR {alert.currentPrice.toLocaleString()}
                     </p>
                   </div>
                   
@@ -261,12 +261,12 @@ const AlertsPage = () => {
                   <div>
                     <p className="text-gray-400 text-xs">{getAlertTypeLabel(alert.type)}</p>
                     <p className="text-white font-bold">
-                      {alert.targetPrice ? `₹${alert.targetPrice}` : `${alert.targetPercent}%`}
+                      {alert.targetPrice ? `NPR ${alert.targetPrice}` : `${alert.targetPercent}%`}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="text-gray-400 text-xs">Current Price</p>
-                    <p className="text-white font-bold">₹{alert.currentPrice}</p>
+                    <p className="text-white font-bold">NPR {alert.currentPrice}</p>
                   </div>
                 </div>
               </div>
@@ -369,7 +369,7 @@ const AlertsPage = () => {
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                    {newAlert.type.includes('percent') ? '%' : '₹'}
+                    {newAlert.type.includes('percent') ? '%' : 'NPR'}
                   </span>
                   <input
                     type="number"

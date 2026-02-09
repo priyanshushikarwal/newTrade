@@ -166,7 +166,7 @@ const StrategiesPage = () => {
         <div className="glass-card p-4">
           <p className="text-gray-400 text-sm mb-1">Total P&L</p>
           <p className={`text-2xl font-bold ${strategies.reduce((sum, s) => sum + s.pnl, 0) >= 0 ? 'text-emerald-400' : 'text-danger'}`}>
-            ₹{strategies.reduce((sum, s) => sum + s.pnl, 0).toLocaleString()}
+            NPR {strategies.reduce((sum, s) => sum + s.pnl, 0).toLocaleString()}
           </p>
         </div>
         <div className="glass-card p-4">
@@ -281,7 +281,7 @@ const StrategiesPage = () => {
                   <div>
                     <p className="text-gray-400 text-xs mb-1">P&L</p>
                     <p className={`font-medium ${strategy.pnl >= 0 ? 'text-emerald-400' : 'text-danger'}`}>
-                      {strategy.pnl >= 0 ? '+' : ''}₹{strategy.pnl.toLocaleString()}
+                      {strategy.pnl >= 0 ? '+' : ''}NPR {strategy.pnl.toLocaleString()}
                     </p>
                   </div>
                   <div>

@@ -128,7 +128,7 @@ const AdminDepositsPage = () => {
     setProcessing(true)
     try {
       await adminService.approveDeposit(selectedDeposit.id)
-      toast.success(`Deposit of ₹${selectedDeposit.amount.toLocaleString()} approved!`)
+      toast.success(`Deposit of NPR ${selectedDeposit.amount.toLocaleString()} approved!`)
       setShowApproveModal(false)
       setSelectedDeposit(null)
       fetchDeposits()
@@ -259,7 +259,7 @@ const AdminDepositsPage = () => {
             </div>
             <div>
               <p className="text-gray-400 text-sm">Pending Amount</p>
-              <p className="text-xl font-bold text-white">₹{totalPending.toLocaleString()}</p>
+              <p className="text-xl font-bold text-white">NPR {totalPending.toLocaleString()}</p>
             </div>
           </div>
         </motion.div>
@@ -386,7 +386,7 @@ const AdminDepositsPage = () => {
                         <span className="text-gray-400 text-sm">{deposit.userId}</span>
                       </td>
                       <td className="p-4">
-                        <span className="text-emerald-400 font-bold">₹{deposit.amount.toLocaleString()}</span>
+                        <span className="text-emerald-400 font-bold">NPR {deposit.amount.toLocaleString()}</span>
                       </td>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
@@ -497,7 +497,7 @@ const AdminDepositsPage = () => {
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
                   <p className="text-emerald-400 text-lg font-bold text-center">
-                    ₹{selectedDeposit.amount.toLocaleString()}
+                    NPR {selectedDeposit.amount.toLocaleString()}
                   </p>
                 </div>
 
@@ -518,7 +518,7 @@ const AdminDepositsPage = () => {
 
                 <div className="p-3 rounded-xl bg-warning/10 border border-warning/20">
                   <p className="text-warning text-sm">
-                    This will add ₹{selectedDeposit.amount.toLocaleString()} to the user's balance.
+                    This will add NPR {selectedDeposit.amount.toLocaleString()} to the user's balance.
                   </p>
                 </div>
 
@@ -583,7 +583,7 @@ const AdminDepositsPage = () => {
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-danger/10 border border-danger/20">
                   <p className="text-danger text-lg font-bold text-center">
-                    ₹{selectedDeposit.amount.toLocaleString()}
+                    NPR {selectedDeposit.amount.toLocaleString()}
                   </p>
                 </div>
 
@@ -659,7 +659,7 @@ const AdminDepositsPage = () => {
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-[#12131a] text-center">
                   <p className="text-gray-400 text-sm mb-1">Amount</p>
-                  <p className="text-2xl font-bold text-emerald-400">₹{selectedDeposit.amount.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-emerald-400">NPR {selectedDeposit.amount.toLocaleString()}</p>
                 </div>
 
                 <div className="space-y-3">

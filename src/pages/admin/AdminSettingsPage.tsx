@@ -12,7 +12,10 @@ import {
   AlertCircle,
   CheckCircle,
   Loader2,
-  MessageCircle
+  MessageCircle,
+  Upload,
+  X,
+  QrCode
 } from 'lucide-react'
 import { adminService } from '@/services/api'
 import toast from 'react-hot-toast'
@@ -37,6 +40,12 @@ const AdminSettingsPage = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [whatsappNumber, setWhatsappNumber] = useState('919876543210')
+  
+  // QR Code states
+  const [currentQrCode, setCurrentQrCode] = useState<string | null>(null)
+  const [qrCodeFile, setQrCodeFile] = useState<File | null>(null)
+  const [qrCodePreview, setQrCodePreview] = useState<string | null>(null)
+  const [isUploadingQr, setIsUploadingQr] = useState(false)
   
   const [charges, setCharges] = useState<ChargeConfig[]>([
     {
@@ -92,6 +101,15 @@ const AdminSettingsPage = () => {
       
       if (settings.whatsappNumber) {
         setWhatsappNumber(settings.whatsappNumber)
+      }
+
+      // Fetch current QR code
+      try {
+        const qrResponse = await adminService.getPaymentQrCode()
+        setCurrentQrCode(qrResponse.qrCodeUrl)
+      } catch (error) {
+        console.log('No QR code set yet')
+        setCurrentQrCode(null)
       }
     } catch (error) {
       console.error('Failed to fetch settings:', error)
@@ -153,6 +171,60 @@ const AdminSettingsPage = () => {
     setCharges(defaultCharges)
     setWhatsappNumber('919876543210')
     toast.success('Settings reset to defaults (click Save to apply)')
+  }
+
+  // QR Code handlers
+  const handleQrCodeFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) { // 2MB limit
+        toast.error('QR code image must be less than 2MB')
+        return
+      }
+      if (!file.type.startsWith('image/')) {
+        toast.error('Please select a valid image file')
+        return
+      }
+      
+      setQrCodeFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setQrCodePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleUploadQrCode = async () => {
+    if (!qrCodeFile) {
+      toast.error('Please select a QR code image first')
+      return
+    }
+
+    setIsUploadingQr(true)
+    try {
+      const response = await adminService.uploadPaymentQrCode(qrCodeFile)
+      setCurrentQrCode(response.qrCodeUrl)
+      setQrCodeFile(null)
+      setQrCodePreview(null)
+      toast.success('QR code uploaded successfully!')
+    } catch (error) {
+      console.error('Failed to upload QR code:', error)
+      toast.error('Failed to upload QR code')
+    } finally {
+      setIsUploadingQr(false)
+    }
+  }
+
+  const handleDeleteQrCode = async () => {
+    try {
+      await adminService.deletePaymentQrCode()
+      setCurrentQrCode(null)
+      toast.success('QR code deleted successfully!')
+    } catch (error) {
+      console.error('Failed to delete QR code:', error)
+      toast.error('Failed to delete QR code')
+    }
   }
 
   if (isLoading) {
@@ -295,21 +367,21 @@ const AdminSettingsPage = () => {
 
         {/* Example Calculation */}
         <div className="mt-4 p-4 rounded-xl bg-[#12131a]">
-          <p className="text-gray-400 text-sm mb-2">Example: For a ₹10,000 withdrawal</p>
+          <p className="text-gray-400 text-sm mb-2">Example: For a NPR 10,000 withdrawal</p>
           <div className="space-y-1">
             {charges.map(charge => (
               <div key={charge.id} className="flex justify-between text-sm">
                 <span className="text-gray-400">{charge.label}</span>
-                <span className="text-white">₹{((10000 * charge.percentage) / 100).toFixed(2)}</span>
+                <span className="text-white">NPR {((10000 * charge.percentage) / 100).toFixed(2)}</span>
               </div>
             ))}
             <div className="border-t border-white/10 my-2 pt-2 flex justify-between text-sm font-medium">
               <span className="text-white">Total Charges</span>
-              <span className="text-danger">₹{((10000 * getTotalCharges()) / 100).toFixed(2)}</span>
+              <span className="text-danger">NPR {((10000 * getTotalCharges()) / 100).toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-sm font-bold">
               <span className="text-white">Net Amount to User</span>
-              <span className="text-emerald-400">₹{(10000 - (10000 * getTotalCharges()) / 100).toFixed(2)}</span>
+              <span className="text-emerald-400">NPR {(10000 - (10000 * getTotalCharges()) / 100).toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -362,6 +434,126 @@ const AdminSettingsPage = () => {
           >
             https://wa.me/{whatsappNumber}
           </a>
+        </div>
+      </motion.div>
+
+      {/* QR Code Management */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="space-y-4"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-white">Payment QR Code</h2>
+            <p className="text-gray-400 text-sm">Upload QR code for payment proof verification</p>
+          </div>
+          <QrCode className="w-6 h-6 text-purple-400" />
+        </div>
+
+        <div className="p-6 rounded-xl bg-[#12131a]">
+          {/* Current QR Code Display */}
+          {currentQrCode && (
+            <div className="mb-6">
+              <h3 className="text-white font-semibold mb-3">Current QR Code</h3>
+              <div className="flex items-center gap-4">
+                <div className="p-4 bg-white rounded-lg">
+                  <img
+                    src={currentQrCode}
+                    alt="Current QR Code"
+                    className="w-32 h-32 object-contain"
+                  />
+                </div>
+                <div className="flex-1">
+                  <p className="text-gray-300 text-sm mb-2">
+                    This QR code is currently shown to users during payment proof upload.
+                  </p>
+                  <button
+                    onClick={handleDeleteQrCode}
+                    className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 hover:border-red-500/50 rounded-lg text-red-400 hover:text-red-300 transition-colors flex items-center gap-2"
+                  >
+                    <X className="w-4 h-4" />
+                    Delete QR Code
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Upload New QR Code */}
+          <div>
+            <h3 className="text-white font-semibold mb-3">
+              {currentQrCode ? 'Replace QR Code' : 'Upload QR Code'}
+            </h3>
+            
+            <div className="space-y-4">
+              {/* File Input */}
+              <div className="relative">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleQrCodeFileSelect}
+                  className="hidden"
+                  id="qr-code-upload"
+                />
+                <label
+                  htmlFor="qr-code-upload"
+                  className="flex items-center justify-center gap-3 p-6 rounded-xl bg-[#1a1b23] border-2 border-dashed border-purple-500/30 hover:border-purple-500/50 cursor-pointer transition-colors"
+                >
+                  <Upload className="w-6 h-6 text-purple-400" />
+                  <div className="text-center">
+                    <p className="text-purple-400 font-medium">
+                      {qrCodeFile ? qrCodeFile.name : 'Click to select QR code image'}
+                    </p>
+                    <p className="text-gray-400 text-sm mt-1">
+                      PNG, JPG, or SVG • Max 2MB
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Preview */}
+              {qrCodePreview && (
+                <div className="flex items-center gap-4 p-4 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                  <div className="p-3 bg-white rounded-lg">
+                    <img
+                      src={qrCodePreview}
+                      alt="QR Code Preview"
+                      className="w-20 h-20 object-contain"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-purple-400 font-medium">Preview</p>
+                    <p className="text-gray-400 text-sm">This is how the QR code will appear to users</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleUploadQrCode}
+                      disabled={isUploadingQr}
+                      className="px-4 py-2 bg-purple-500 hover:bg-purple-600 disabled:bg-purple-500/50 rounded-lg text-white font-medium transition-colors flex items-center gap-2"
+                    >
+                      {isUploadingQr ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Upload className="w-4 h-4" />
+                      )}
+                      {isUploadingQr ? 'Uploading...' : 'Upload'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setQrCodeFile(null)
+                        setQrCodePreview(null)
+                      }}
+                      className="px-4 py-2 bg-gray-500/20 hover:bg-gray-500/30 border border-gray-500/30 rounded-lg text-gray-400 hover:text-gray-300 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </motion.div>
 

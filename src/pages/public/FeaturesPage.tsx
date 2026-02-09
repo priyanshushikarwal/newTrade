@@ -172,7 +172,7 @@ const FeaturesPage = () => {
               Ready to Experience These Features?
             </h2>
             <p className="text-gray-400 mb-8">
-              Create your free account and start trading with ₹500 NPR demo balance.
+              Create your free account and start trading with NPR 500 demo balance.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               <Link to="/signup" className="btn-primary">

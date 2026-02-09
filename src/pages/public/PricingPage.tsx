@@ -6,11 +6,11 @@ const PricingPage = () => {
   const plans = [
     {
       name: 'Free',
-      price: '₹0',
+      price: 'NPR 0',
       period: 'forever',
       description: 'Perfect for beginners to learn and practice',
       features: [
-        { text: '₹500 NPR demo balance', included: true },
+        { text: 'NPR 500 demo balance', included: true },
         { text: 'Basic charting tools', included: true },
         { text: 'Market & limit orders', included: true },
         { text: 'Portfolio tracking', included: true },
@@ -25,11 +25,11 @@ const PricingPage = () => {
     },
     {
       name: 'Pro',
-      price: '₹499',
+      price: 'NPR 499',
       period: '/month',
       description: 'For serious traders who want advanced tools',
       features: [
-        { text: '₹10,000 NPR demo balance', included: true },
+        { text: 'NPR 10,000 demo balance', included: true },
         { text: 'Advanced charting tools', included: true },
         { text: 'All order types', included: true },
         { text: 'Advanced analytics', included: true },
@@ -67,7 +67,7 @@ const PricingPage = () => {
     { item: 'Account Opening', fee: 'Free' },
     { item: 'Demo Trading', fee: 'Free' },
     { item: 'Profitable Trade Commission', fee: '5% of profit' },
-    { item: 'Withdrawal Processing', fee: '₹25 per request' },
+    { item: 'Withdrawal Processing', fee: 'NPR 25 per request' },
     { item: 'Deposit Processing', fee: 'Free' },
     { item: 'Account Maintenance', fee: 'Free' },
   ]

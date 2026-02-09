@@ -405,6 +405,27 @@ export const adminService = {
   updateWhatsappNumber: async (whatsappNumber: string): Promise<void> => {
     await api.put('/admin/settings/whatsapp', { whatsappNumber })
   },
+
+  // QR Code management
+  uploadPaymentQrCode: async (file: File): Promise<{ qrCodeUrl: string }> => {
+    const formData = new FormData()
+    formData.append('qrCode', file)
+    const response = await api.post('/admin/settings/qr-code', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+    return response.data
+  },
+
+  getPaymentQrCode: async (): Promise<{ qrCodeUrl: string }> => {
+    const response = await api.get('/admin/settings/qr-code')
+    return response.data
+  },
+
+  deletePaymentQrCode: async (): Promise<void> => {
+    await api.delete('/admin/settings/qr-code')
+  },
 }
 
 // Settings Service (public - for users to fetch charges)
@@ -416,6 +437,11 @@ export const settingsService = {
 
   getWhatsappNumber: async (): Promise<{ whatsappNumber: string }> => {
     const response = await api.get('/settings/whatsapp')
+    return response.data
+  },
+
+  getPaymentQrCode: async (): Promise<{ qrCodeUrl: string }> => {
+    const response = await api.get('/settings/qr-code')
     return response.data
   },
 }

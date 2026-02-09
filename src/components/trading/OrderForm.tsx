@@ -52,7 +52,7 @@ const OrderForm: React.FC<OrderFormProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-white">{symbol}</h3>
-        <span className="text-lg font-bold text-white">₹{currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+        <span className="text-lg font-bold text-white">NPR {currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
       </div>
       
       {/* Buy/Sell Toggle */}
@@ -159,12 +159,12 @@ const OrderForm: React.FC<OrderFormProps> = ({
           <div className="flex justify-between text-sm">
             <span className="text-gray-400">Price</span>
             <span className="text-white">
-              {priceType === 'market' ? 'Market' : `₹${Number(price || 0).toLocaleString('en-IN')}`}
+              {priceType === 'market' ? 'Market' : `NPR ${Number(price || 0).toLocaleString('en-IN')}`}
             </span>
           </div>
           <div className="border-t border-white/10 pt-2 flex justify-between">
             <span className="text-gray-400 font-medium">Estimated Value</span>
-            <span className="text-white font-semibold">₹{estimatedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            <span className="text-white font-semibold">NPR {estimatedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
           </div>
         </div>
         

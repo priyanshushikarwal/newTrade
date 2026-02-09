@@ -91,7 +91,7 @@ const PortfolioPage = () => {
           className="glass-card p-4 lg:p-6"
         >
           <p className="text-gray-400 text-sm mb-2">Total Invested</p>
-          <p className="text-2xl lg:text-3xl font-bold text-white">₹{totalInvested.toLocaleString()}</p>
+          <p className="text-2xl lg:text-3xl font-bold text-white">NPR {totalInvested.toLocaleString()}</p>
         </motion.div>
 
         <motion.div
@@ -101,7 +101,7 @@ const PortfolioPage = () => {
           className="glass-card p-4 lg:p-6"
         >
           <p className="text-gray-400 text-sm mb-2">Current Value</p>
-          <p className="text-2xl lg:text-3xl font-bold text-white">₹{currentValue.toLocaleString()}</p>
+          <p className="text-2xl lg:text-3xl font-bold text-white">NPR {currentValue.toLocaleString()}</p>
         </motion.div>
 
         <motion.div
@@ -112,7 +112,7 @@ const PortfolioPage = () => {
         >
           <p className="text-gray-400 text-sm mb-2">Total P&L</p>
           <p className={`text-2xl lg:text-3xl font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-danger'}`}>
-            {totalPnl >= 0 ? '+' : ''}₹{totalPnl.toFixed(2)}
+            {totalPnl >= 0 ? '+' : ''}NPR {totalPnl.toFixed(2)}
           </p>
           <p className={`text-sm flex items-center gap-1 ${totalPnl >= 0 ? 'text-emerald-400' : 'text-danger'}`}>
             {totalPnl >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
@@ -127,7 +127,7 @@ const PortfolioPage = () => {
           className="glass-card p-4 lg:p-6"
         >
           <p className="text-gray-400 text-sm mb-2">Day's P&L</p>
-          <p className="text-2xl lg:text-3xl font-bold text-emerald-400">+₹1,245.35</p>
+          <p className="text-2xl lg:text-3xl font-bold text-emerald-400">+NPR 1,245.35</p>
           <p className="text-sm flex items-center gap-1 text-emerald-400">
             <ArrowUpRight className="w-3 h-3" />
             1.16%
@@ -198,18 +198,18 @@ const PortfolioPage = () => {
                     </div>
                     <div className="text-right lg:col-span-2">
                       <p className="text-white">{holding.qty}</p>
-                      <p className="text-gray-400 text-sm">@₹{holding.avgPrice.toFixed(2)}</p>
+                      <p className="text-gray-400 text-sm">@NPR {holding.avgPrice.toFixed(2)}</p>
                     </div>
                     <div className="hidden lg:block col-span-2 text-right">
-                      <p className="text-white">₹{holding.ltp.toFixed(2)}</p>
+                      <p className="text-white">NPR {holding.ltp.toFixed(2)}</p>
                     </div>
                     <div className="hidden lg:block col-span-2 text-right">
-                      <p className="text-white">₹{holding.current.toLocaleString()}</p>
-                      <p className="text-gray-400 text-sm">Inv: ₹{holding.invested.toLocaleString()}</p>
+                      <p className="text-white">NPR {holding.current.toLocaleString()}</p>
+                      <p className="text-gray-400 text-sm">Inv: NPR {holding.invested.toLocaleString()}</p>
                     </div>
                     <div className="lg:col-span-3 text-right">
                       <p className={`font-medium ${holding.pnl >= 0 ? 'text-emerald-400' : 'text-danger'}`}>
-                        {holding.pnl >= 0 ? '+' : ''}₹{holding.pnl.toFixed(2)}
+                        {holding.pnl >= 0 ? '+' : ''}NPR {holding.pnl.toFixed(2)}
                       </p>
                       <p className={`text-sm flex items-center justify-end gap-1 ${
                         holding.pnlPercent >= 0 ? 'text-emerald-400' : 'text-danger'
@@ -255,14 +255,14 @@ const PortfolioPage = () => {
                         </div>
                         <div className="text-right lg:col-span-2">
                           <p className="text-white">{position.qty}</p>
-                          <p className="text-gray-400 text-sm">@₹{position.entryPrice.toFixed(2)}</p>
+                          <p className="text-gray-400 text-sm">@NPR {position.entryPrice.toFixed(2)}</p>
                         </div>
                         <div className="hidden lg:block col-span-2 text-right">
-                          <p className="text-white">₹{position.ltp.toFixed(2)}</p>
+                          <p className="text-white">NPR {position.ltp.toFixed(2)}</p>
                         </div>
                         <div className="lg:col-span-3 text-right">
                           <p className={`font-medium ${position.pnl >= 0 ? 'text-emerald-400' : 'text-danger'}`}>
-                            {position.pnl >= 0 ? '+' : ''}₹{position.pnl.toFixed(2)}
+                            {position.pnl >= 0 ? '+' : ''}NPR {position.pnl.toFixed(2)}
                           </p>
                           <p className={`text-sm flex items-center justify-end gap-1 ${
                             position.pnlPercent >= 0 ? 'text-emerald-400' : 'text-danger'
@@ -323,7 +323,7 @@ const PortfolioPage = () => {
                       <p className="text-white">{order.qty}</p>
                     </div>
                     <div className="hidden lg:block col-span-2 text-right">
-                      <p className="text-white">₹{order.price.toFixed(2)}</p>
+                      <p className="text-white">NPR {order.price.toFixed(2)}</p>
                     </div>
                     <div className="lg:col-span-2 text-center">
                       <span className={`px-3 py-1 rounded-lg text-sm font-medium ${
@@ -380,7 +380,7 @@ const PortfolioPage = () => {
                       border: '1px solid rgba(255,255,255,0.1)',
                       borderRadius: '12px',
                     }}
-                    formatter={(value: number) => [`₹${value.toLocaleString()}`, 'Value']}
+                    formatter={(value: number) => [`NPR ${value.toLocaleString()}`, 'Value']}
                   />
                 </RePieChart>
               </ResponsiveContainer>

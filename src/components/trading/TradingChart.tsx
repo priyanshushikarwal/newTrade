@@ -171,7 +171,7 @@ const TradingChart: React.FC<TradingChartProps> = ({
             <h3 className="text-lg font-bold text-white">{symbol}</h3>
             <div className="flex items-center gap-1">
               <span className="text-xl font-semibold text-white">
-                ₹{latestPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                NPR {latestPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </span>
               <span className={`flex items-center text-sm font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                 {isPositive ? <HiTrendingUp className="w-4 h-4" /> : <HiTrendingDown className="w-4 h-4" />}

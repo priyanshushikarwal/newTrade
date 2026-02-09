@@ -90,7 +90,7 @@ const DashboardPage = () => {
             <span className="text-xs text-gray-400">Available</span>
           </div>
           <p className="text-2xl lg:text-3xl font-bold text-white mb-1">
-            ₹{balance.available.toLocaleString()}
+            NPR {balance.available.toLocaleString()}
           </p>
           <p className="text-gray-400 text-sm">Demo Balance</p>
         </motion.div>
@@ -111,7 +111,7 @@ const DashboardPage = () => {
             </span>
           </div>
           <p className="text-2xl lg:text-3xl font-bold text-white mb-1">
-            ₹{summary.currentValue.toLocaleString()}
+            NPR {summary.currentValue.toLocaleString()}
           </p>
           <p className="text-gray-400 text-sm">Portfolio Value</p>
         </motion.div>
@@ -133,7 +133,7 @@ const DashboardPage = () => {
             <span className="text-xs text-gray-400">Today</span>
           </div>
           <p className={`text-2xl lg:text-3xl font-bold ${summary.dayPnl >= 0 ? 'text-emerald-400' : 'text-danger'} mb-1`}>
-            {summary.dayPnl >= 0 ? '+' : ''}₹{summary.dayPnl.toLocaleString()}
+            {summary.dayPnl >= 0 ? '+' : ''}NPR {summary.dayPnl.toLocaleString()}
           </p>
           <p className="text-gray-400 text-sm">Day's P&L</p>
         </motion.div>
@@ -151,7 +151,7 @@ const DashboardPage = () => {
             <span className="text-xs text-gray-400">Total</span>
           </div>
           <p className={`text-2xl lg:text-3xl font-bold ${summary.totalPnl >= 0 ? 'text-emerald-400' : 'text-danger'} mb-1`}>
-            {summary.totalPnl >= 0 ? '+' : ''}₹{summary.totalPnl.toLocaleString()}
+            {summary.totalPnl >= 0 ? '+' : ''}NPR {summary.totalPnl.toLocaleString()}
           </p>
           <p className="text-gray-400 text-sm">Total P&L</p>
         </motion.div>
@@ -202,7 +202,7 @@ const DashboardPage = () => {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                  tickFormatter={(value) => `₹${value}`}
+                  tickFormatter={(value) => `NPR ${value}`}
                 />
                 <Tooltip
                   contentStyle={{
@@ -252,7 +252,7 @@ const DashboardPage = () => {
                   <p className="text-gray-400 text-xs">{stock.name}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-white font-medium">₹{stock.price.toLocaleString()}</p>
+                  <p className="text-white font-medium">NPR {stock.price.toLocaleString()}</p>
                   <p className={`text-xs flex items-center justify-end gap-1 ${
                     stock.change >= 0 ? 'text-emerald-400' : 'text-danger'
                   }`}>
@@ -306,7 +306,7 @@ const DashboardPage = () => {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-white font-medium">₹{order.price.toLocaleString()}</p>
+                  <p className="text-white font-medium">NPR {order.price.toLocaleString()}</p>
                   <p className={`text-xs ${
                     order.status === 'filled' ? 'text-emerald-400' : 'text-amber-400'
                   }`}>

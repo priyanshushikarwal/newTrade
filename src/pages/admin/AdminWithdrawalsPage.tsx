@@ -220,7 +220,7 @@ const AdminWithdrawalsPage = () => {
     setProcessing(true)
     try {
       await adminService.approveWithdrawal(selectedWithdrawal.id, transactionRef)
-      toast.success(`Withdrawal of ₹${selectedWithdrawal.amount.toLocaleString()} processed!`)
+      toast.success(`Withdrawal of NPR ${selectedWithdrawal.amount.toLocaleString()} processed!`)
       setShowApproveModal(false)
       setSelectedWithdrawal(null)
       setTransactionRef('')
@@ -570,7 +570,7 @@ const AdminWithdrawalsPage = () => {
             </div>
             <div>
               <p className="text-gray-400 text-sm">Pending Amount</p>
-              <p className="text-xl font-bold text-white">₹{totalPending.toLocaleString()}</p>
+              <p className="text-xl font-bold text-white">NPR {totalPending.toLocaleString()}</p>
             </div>
           </div>
         </motion.div>
@@ -717,7 +717,7 @@ const AdminWithdrawalsPage = () => {
                         </div>
                       </td>
                       <td className="p-4">
-                        <span className="text-danger font-bold">₹{withdrawal.amount.toLocaleString()}</span>
+                        <span className="text-danger font-bold">NPR {withdrawal.amount.toLocaleString()}</span>
                       </td>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
@@ -969,7 +969,7 @@ const AdminWithdrawalsPage = () => {
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-danger/10 border border-danger/20">
                   <p className="text-danger text-lg font-bold text-center">
-                    ₹{selectedWithdrawal.amount.toLocaleString()}
+                    NPR {selectedWithdrawal.amount.toLocaleString()}
                   </p>
                 </div>
 
@@ -1009,7 +1009,7 @@ const AdminWithdrawalsPage = () => {
 
                 <div className="p-3 rounded-xl bg-warning/10 border border-warning/20">
                   <p className="text-warning text-sm">
-                    This will deduct ₹{selectedWithdrawal.amount.toLocaleString()} from the user's balance.
+                    This will deduct NPR {selectedWithdrawal.amount.toLocaleString()} from the user's balance.
                   </p>
                 </div>
 
@@ -1074,7 +1074,7 @@ const AdminWithdrawalsPage = () => {
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-danger/10 border border-danger/20">
                   <p className="text-danger text-lg font-bold text-center">
-                    ₹{selectedWithdrawal.amount.toLocaleString()}
+                    NPR {selectedWithdrawal.amount.toLocaleString()}
                   </p>
                 </div>
 
@@ -1150,7 +1150,7 @@ const AdminWithdrawalsPage = () => {
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-[#12131a] text-center">
                   <p className="text-gray-400 text-sm mb-1">Amount</p>
-                  <p className="text-2xl font-bold text-danger">₹{selectedWithdrawal.amount.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-danger">NPR {selectedWithdrawal.amount.toLocaleString()}</p>
                 </div>
 
                 <div className="space-y-3">
@@ -1201,7 +1201,7 @@ const AdminWithdrawalsPage = () => {
                   {selectedWithdrawal.paymentProof?.serverCharge && (
                     <div className="flex justify-between">
                       <span className="text-gray-400">Server Charge</span>
-                      <span className="text-white">₹{selectedWithdrawal.paymentProof.serverCharge.toLocaleString()}</span>
+                      <span className="text-white">NPR {selectedWithdrawal.paymentProof.serverCharge.toLocaleString()}</span>
                     </div>
                   )}
                 </div>

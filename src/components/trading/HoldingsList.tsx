@@ -57,10 +57,10 @@ const HoldingsList: React.FC<HoldingsListProps> = ({
                 <div className="text-xs text-gray-400">{holding.quantity} shares</div>
               </div>
               <div className="text-right">
-                <div className="font-medium text-white">₹{holding.currentValue.toLocaleString('en-IN')}</div>
+                <div className="font-medium text-white">NPR {holding.currentValue.toLocaleString('en-IN')}</div>
                 <div className={`text-xs flex items-center justify-end gap-1 ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                   {isPositive ? <HiTrendingUp className="w-3 h-3" /> : <HiTrendingDown className="w-3 h-3" />}
-                  {isPositive ? '+' : ''}₹{Math.abs(holding.pnl).toLocaleString('en-IN')} ({holding.pnlPercent.toFixed(2)}%)
+                  {isPositive ? '+' : ''}NPR {Math.abs(holding.pnl).toLocaleString('en-IN')} ({holding.pnlPercent.toFixed(2)}%)
                 </div>
               </div>
             </div>
@@ -100,13 +100,13 @@ const HoldingsList: React.FC<HoldingsListProps> = ({
                   <div className="text-xs text-gray-400">{holding.name}</div>
                 </td>
                 <td className="px-4 py-3 text-right text-white">{holding.quantity}</td>
-                <td className="px-4 py-3 text-right text-gray-300">₹{holding.avgPrice.toLocaleString('en-IN')}</td>
-                <td className="px-4 py-3 text-right text-white font-medium">₹{holding.currentPrice.toLocaleString('en-IN')}</td>
-                <td className="px-4 py-3 text-right text-white">₹{holding.currentValue.toLocaleString('en-IN')}</td>
+                <td className="px-4 py-3 text-right text-gray-300">NPR {holding.avgPrice.toLocaleString('en-IN')}</td>
+                <td className="px-4 py-3 text-right text-white font-medium">NPR {holding.currentPrice.toLocaleString('en-IN')}</td>
+                <td className="px-4 py-3 text-right text-white">NPR {holding.currentValue.toLocaleString('en-IN')}</td>
                 <td className="px-4 py-3 text-right">
                   <div className={`flex items-center justify-end gap-1 font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                     {isPositive ? <HiTrendingUp className="w-3 h-3" /> : <HiTrendingDown className="w-3 h-3" />}
-                    {isPositive ? '+' : ''}₹{Math.abs(holding.pnl).toLocaleString('en-IN')}
+                    {isPositive ? '+' : ''}NPR {Math.abs(holding.pnl).toLocaleString('en-IN')}
                   </div>
                   <div className={`text-xs ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                     ({holding.pnlPercent.toFixed(2)}%)

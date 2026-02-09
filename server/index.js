@@ -3,12 +3,15 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: 'http://192.168.29.209:5173',  // Replace with your IP + port, or '*' for any
     methods: ['GET', 'POST']
   }
 });
@@ -16,6 +19,36 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads', 'qr-codes');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `payment-qr-${Date.now()}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
 
 const JWT_SECRET = 'your-super-secret-jwt-key-change-in-production';
 const DEFAULT_BALANCE = 0; // NPR 0 initial balance
@@ -108,7 +141,8 @@ const db = {
       serverCommissionHolding: { label: 'Server Commission Holding', percentage: 2.0 },
       accountClosure: { label: 'Account Closure', percentage: 1.0 }
     },
-    whatsappNumber: '919876543210'
+    whatsappNumber: '919876543210',
+    qrCodeUrl: null
   }
 };
 
@@ -832,7 +866,7 @@ app.post('/api/orders', authenticateToken, (req, res) => {
       userId: req.user.id,
       type: side === 'buy' ? 'debit' : 'credit',
       amount: orderValue,
-      description: `${side.toUpperCase()} ${quantity} ${symbol} @ ₹${orderPrice}`,
+      description: `${side.toUpperCase()} ${quantity} ${symbol} @ NPR ${orderPrice}`,
       status: 'completed',
       createdAt: new Date().toISOString()
     });
@@ -1587,10 +1621,10 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
               const newBalance = db.users[userIdx].balance;
               
               console.log(`💰 BALANCE UPDATE (2nd attempt): ${oldBalance} + ${refundAmount} = ${newBalance}`);
-              console.log(`💰 User ${completedWithdrawal.userId} balance updated from ${oldBalance} to ${newBalance}`);
+              console.log(`💰 Refunding - Amount: ${withdrawal.amount}, Server Charge: ${withdrawal.serverCharge || 0}`);
 
-              // Update the completed transaction to failed
-              const txIndex = db.transactions.findIndex(t => 
+              // Update the original withdrawal transaction to failed
+              const transactionIndex = db.transactions.findIndex(t => 
                 t.userId === completedWithdrawal.userId && 
                 t.type === 'withdrawal' && 
                 t.amount === completedWithdrawal.amount &&
@@ -1598,14 +1632,14 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
               );
               
               console.log(`Looking for transaction to update: userId=${completedWithdrawal.userId}, amount=${completedWithdrawal.amount}, status=completed`);
-              console.log(`Found transaction index: ${txIndex}`);
+              console.log(`Found transaction index: ${transactionIndex}`);
               
-              if (txIndex !== -1) {
-                console.log(`✏️ Updating transaction from '${db.transactions[txIndex].status}' to 'failed'`);
-                db.transactions[txIndex].status = 'failed';
-                db.transactions[txIndex].description = `Withdrawal of NPR ${completedWithdrawal.amount} - Failed: Due Bank Electronic Charge (Refunded NPR ${refundAmount})`;
-                db.transactions[txIndex].failureReason = 'Due Bank Electronic Charge';
-                console.log(`✅ Transaction updated:`, db.transactions[txIndex]);
+              if (transactionIndex !== -1) {
+                console.log(`✏️ Updating transaction from '${db.transactions[transactionIndex].status}' to 'failed'`);
+                db.transactions[transactionIndex].status = 'failed';
+                db.transactions[transactionIndex].description = `Withdrawal of NPR ${completedWithdrawal.amount} - Failed: ${reason} (Refunded NPR ${refundAmount})`;
+                db.transactions[transactionIndex].failureReason = reason;
+                console.log(`✅ Transaction ${db.transactions[transactionIndex].id} updated to failed`);
               } else {
                 console.log('❌ No matching completed transaction found!');
                 console.log('All withdrawal transactions for user:', db.transactions.filter(t => t.userId === completedWithdrawal.userId && t.type === 'withdrawal'));
@@ -1629,7 +1663,7 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
                 status: 'failed',
                 refundAmount: refundAmount,
                 newBalance: newBalance,
-                reason: 'Due Bank Electronic Charge'
+                reason: reason
               };
               io.emit('withdrawalStatusUpdate', wsPayload);
 
@@ -1885,6 +1919,68 @@ app.put('/api/admin/settings/whatsapp', authenticateToken, (req, res) => {
   }
 
   res.json({ message: 'WhatsApp number updated successfully', whatsappNumber: db.settings.whatsappNumber });
+});
+
+// Admin Settings API - Upload QR Code
+app.post('/api/admin/settings/qr-code', authenticateToken, upload.single('qrCode'), (req, res) => {
+  const user = db.users.find(u => u.id === req.user.id);
+  if (user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ message: 'No file uploaded' });
+  }
+
+  // Store the full URL
+  const qrCodeUrl = `http://localhost:3000/uploads/qr-codes/${req.file.filename}`;
+  db.settings.qrCodeUrl = qrCodeUrl;
+
+  res.json({ message: 'QR code uploaded successfully', qrCodeUrl });
+});
+
+// Admin Settings API - Get QR Code
+app.get('/api/admin/settings/qr-code', authenticateToken, (req, res) => {
+  const user = db.users.find(u => u.id === req.user.id);
+  if (user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+
+  if (!db.settings.qrCodeUrl) {
+    return res.status(404).json({ message: 'No QR code uploaded' });
+  }
+
+  res.json({ qrCodeUrl: db.settings.qrCodeUrl });
+});
+
+// Admin Settings API - Delete QR Code
+app.delete('/api/admin/settings/qr-code', authenticateToken, (req, res) => {
+  const user = db.users.find(u => u.id === req.user.id);
+  if (user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+
+  if (db.settings.qrCodeUrl) {
+    // Extract filename from URL and delete the file from disk
+    const urlParts = db.settings.qrCodeUrl.split('/');
+    const filename = urlParts[urlParts.length - 1];
+    const filePath = path.join(__dirname, 'uploads', 'qr-codes', filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    db.settings.qrCodeUrl = null;
+  }
+
+  res.json({ message: 'QR code deleted successfully' });
+});
+
+// Public Settings API - Get QR Code (for users)
+app.get('/api/settings/qr-code', (req, res) => {
+  if (!db.settings.qrCodeUrl) {
+    return res.status(404).json({ message: 'No QR code available' });
+  }
+
+  res.json({ qrCodeUrl: db.settings.qrCodeUrl });
 });
 
 // WebSocket for real-time price updates

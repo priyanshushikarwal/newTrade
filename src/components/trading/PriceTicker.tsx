@@ -74,7 +74,7 @@ const PriceTicker: React.FC<PriceTickerProps> = ({
                 className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity whitespace-nowrap"
               >
                 <span className="text-sm font-semibold text-white">{ticker.symbol}</span>
-                <span className="text-sm text-gray-300">₹{ticker.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                <span className="text-sm text-gray-300">NPR {ticker.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 <span className={`flex items-center gap-1 text-xs font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                   {isPositive ? <HiTrendingUp className="w-3 h-3" /> : <HiTrendingDown className="w-3 h-3" />}
                   {isPositive ? '+' : ''}{ticker.changePercent.toFixed(2)}%
@@ -103,7 +103,7 @@ const PriceTicker: React.FC<PriceTickerProps> = ({
                 <span className="text-sm font-medium text-white">{ticker.symbol}</span>
               </div>
               <div className="text-right">
-                <div className="text-sm text-white">₹{ticker.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                <div className="text-sm text-white">NPR {ticker.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
                 <div className={`text-xs ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                   {isPositive ? '+' : ''}{ticker.changePercent.toFixed(2)}%
                 </div>
@@ -136,11 +136,11 @@ const PriceTicker: React.FC<PriceTickerProps> = ({
               </span>
             </div>
             <div className="text-lg font-bold text-white mb-1">
-              ₹{ticker.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              NPR {ticker.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
             <div className="flex items-center justify-between text-xs text-gray-400">
-              <span>H: ₹{ticker.high.toLocaleString()}</span>
-              <span>L: ₹{ticker.low.toLocaleString()}</span>
+              <span>H: NPR {ticker.high.toLocaleString()}</span>
+              <span>L: NPR {ticker.low.toLocaleString()}</span>
             </div>
           </div>
         );
