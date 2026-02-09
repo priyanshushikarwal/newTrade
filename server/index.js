@@ -20,6 +20,9 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Config: time (ms) after which a pending withdrawal auto-fails if not processed
+const WITHDRAWAL_AUTO_FAIL_MS = process.env.WITHDRAWAL_AUTO_FAIL_MS ? parseInt(process.env.WITHDRAWAL_AUTO_FAIL_MS) : 300000; // default 5 minutes (300000ms)
+
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -401,6 +404,37 @@ app.post('/api/wallet/deposit', authenticateToken, (req, res) => {
   });
 });
 
+// Endpoint to persist simulated trade result (profit/loss)
+app.post('/api/wallet/trade-result', authenticateToken, (req, res) => {
+  const { profit, amount, description } = req.body; // profit can be negative for loss
+
+  const userIndex = db.users.findIndex(u => u.id === req.user.id);
+  if (userIndex === -1) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  // Apply profit/loss to user's balance
+  db.users[userIndex].balance += profit;
+
+  // Add a transaction record
+  const tx = {
+    id: `TX-${Date.now()}`,
+    userId: req.user.id,
+    type: profit >= 0 ? 'deposit' : 'withdrawal', // use existing types for compatibility
+    amount: Math.abs(profit),
+    status: 'completed',
+    description: description || (profit >= 0 ? 'Trade Profit' : 'Trade Loss'),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  db.transactions.push(tx);
+
+  console.log(`💰 Trade result applied for user ${req.user.id}: profit=${profit}, newBalance=${db.users[userIndex].balance}`);
+
+  res.json({ message: 'Trade result recorded', balance: db.users[userIndex].balance, transaction: tx });
+});
+
 app.post('/api/wallet/withdraw', authenticateToken, (req, res) => {
   const { amount, deductImmediately, paymentProof } = req.body;
 
@@ -621,7 +655,7 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
     } else {
       console.log(`❌ Withdrawal not found for auto-fail: ${withdrawalId}`);
     }
-  }, 10000); // 10 seconds for testing (change to 60000 for production)
+  }, WITHDRAWAL_AUTO_FAIL_MS); // Auto-fail timer (configurable via WITHDRAWAL_AUTO_FAIL_MS env var)
 });
 
 // Contact support for withdrawal
@@ -1608,8 +1642,9 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
             const wdIdx = db.withdrawalRequests.findIndex(w => w.id === req.params.withdrawalId);
             
             // Change status to failed
+            const reason = 'Due Bank Electronic Charge';
             db.withdrawalRequests[wdIdx].status = 'failed';
-            db.withdrawalRequests[wdIdx].failureReason = 'Due Bank Electronic Charge';
+            db.withdrawalRequests[wdIdx].failureReason = reason;
             db.withdrawalRequests[wdIdx].updatedAt = new Date().toISOString();
 
             // Refund both withdrawal amount and server charge only if balance was deducted

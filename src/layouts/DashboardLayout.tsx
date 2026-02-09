@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import DashboardNavbar from '@/components/navigation/DashboardNavbar'
 import DashboardSidebar from '@/components/navigation/DashboardSidebar'
-import MobileBottomNav from '@/components/navigation/MobileBottomNav'
+// MobileBottomNav removed - navigation accessible via header menu
 import { wsService } from '@/services/websocket'
 import { setBalance } from '@/store/slices/walletSlice'
 
@@ -57,8 +57,7 @@ const DashboardLayout = () => {
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation */}
-      <MobileBottomNav />
+      {/* Mobile bottom nav removed. Use the header three-dot menu on mobile for navigation. */}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { 
+  LayoutDashboard,
   TrendingUp, 
   Menu, 
   Bell, 
@@ -8,7 +9,10 @@ import {
   Settings,
   LogOut,
   Wallet,
-  HelpCircle
+  HelpCircle,
+  MoreHorizontal,
+  LineChart,
+  Briefcase
 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -22,8 +26,22 @@ const DashboardNavbar = () => {
   const { balance } = useAppSelector((state) => state.wallet)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isMoreOpen, setIsMoreOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
+  const moreRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+
+  // Close 'more' menu when clicking outside
+  useEffect(() => {
+    const handleClickOutsideMore = (event: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
+        setIsMoreOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutsideMore)
+    return () => document.removeEventListener('mousedown', handleClickOutsideMore)
+  }, [])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -104,6 +122,50 @@ const DashboardNavbar = () => {
             <Bell className="w-5 h-5 text-gray-400" />
             <span className="absolute top-1 right-1 w-2 h-2 bg-danger rounded-full"></span>
           </button>
+
+          {/* Mobile 'More' Menu (three dots) */}
+          <div ref={moreRef} className="relative">
+            <button
+              onClick={() => setIsMoreOpen(!isMoreOpen)}
+              className="md:hidden p-2 rounded-xl hover:bg-white/5 transition-colors"
+              aria-label="More"
+            >
+              <MoreHorizontal className="w-5 h-5 text-gray-400" />
+            </button>
+
+            <AnimatePresence>
+              {isMoreOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 6, scale: 0.95 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute right-0 mt-2 w-44 bg-[#12131a]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-xl z-50"
+                >
+                  <Link to="/dashboard" onClick={() => setIsMoreOpen(false)} className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
+                    <LayoutDashboard className="w-4 h-4" />
+                    <span className="text-sm">Home</span>
+                  </Link>
+                  <Link to="/markets" onClick={() => setIsMoreOpen(false)} className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
+                    <TrendingUp className="w-4 h-4" />
+                    <span className="text-sm">Markets</span>
+                  </Link>
+                  <Link to="/trade" onClick={() => setIsMoreOpen(false)} className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
+                    <LineChart className="w-4 h-4" />
+                    <span className="text-sm">Trade</span>
+                  </Link>
+                  <Link to="/portfolio" onClick={() => setIsMoreOpen(false)} className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
+                    <Briefcase className="w-4 h-4" />
+                    <span className="text-sm">Portfolio</span>
+                  </Link>
+                  <Link to="/wallet" onClick={() => setIsMoreOpen(false)} className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
+                    <Wallet className="w-4 h-4" />
+                    <span className="text-sm">Wallet</span>
+                  </Link>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           {/* Profile Dropdown */}
           <div ref={profileRef} className="relative">

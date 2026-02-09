@@ -205,6 +205,12 @@ export const walletService = {
     return response.data
   },
 
+  // Report simulated trade result (profit or loss) to persist on server
+  reportTradeResult: async (profit: number, amount: number, description?: string): Promise<{ balance: number; transaction: Transaction }> => {
+    const response = await api.post('/wallet/trade-result', { profit, amount, description })
+    return response.data
+  },
+
   getUnholdStatus: async (): Promise<{ hasPendingUnholdRequest: boolean; unholdRequest: any }> => {
     const response = await api.get('/wallet/unhold-status')
     return response.data

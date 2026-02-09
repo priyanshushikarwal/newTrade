@@ -238,15 +238,13 @@ const WalletPage = () => {
             })
             
             // For balance updates, also refresh transactions
-            if (data.status === 'failed') {
-              console.log('🔄 Refreshing transactions after failed withdrawal...')
-              walletService.getTransactions().then((transactionData) => {
-                setTransactions(transactionData || [])
-                console.log(`📊 Transactions refreshed after balance update, count: ${transactionData?.length || 0}`)
-              }).catch((error) => {
-                console.error('Failed to refresh transactions:', error)
-              })
-            }
+            console.log('🔄 Refreshing transactions after withdrawal status update...')
+            walletService.getTransactions().then((transactionData) => {
+              setTransactions(transactionData || [])
+              console.log(`📊 Transactions refreshed after balance update, count: ${transactionData?.length || 0}`)
+            }).catch((error) => {
+              console.error('Failed to refresh transactions:', error)
+            })
           } else {
             // For other updates without balance change, refresh all data
             console.log('🔄 Refreshing wallet data from server...')
@@ -443,7 +441,7 @@ const WalletPage = () => {
 
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 overflow-x-hidden">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -465,9 +463,9 @@ const WalletPage = () => {
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center">
               <Wallet className="w-6 h-6 text-white" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-gray-400 text-sm">Available Balance</p>
-              <p className="text-3xl font-bold text-white">NPR {balance.available.toLocaleString()}</p>
+              <p className="text-3xl font-bold text-white truncate">NPR {balance.available.toLocaleString()}</p>
             </div>
           </div>
           <div className="flex gap-3 flex-col">
@@ -592,11 +590,11 @@ const WalletPage = () => {
           <div className="w-full h-2 bg-[#12131a] rounded-full overflow-hidden">
             <div 
               className="h-full bg-warning rounded-full"
-              style={{ width: `${(balance.blocked / balance.total) * 100}%` }}
+              style={{ width: `${balance.total > 0 ? (balance.blocked / balance.total) * 100 : 0}%` }}
             />
           </div>
           <p className="text-gray-400 text-xs mt-2">
-            {((balance.blocked / balance.total) * 100).toFixed(1)}% of total balance
+            {balance.total > 0 ? ((balance.blocked / balance.total) * 100).toFixed(1) : '0.0'}% of total balance
           </p>
         </motion.div>
 
@@ -639,7 +637,7 @@ const WalletPage = () => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5 }}
-        className="glass-card"
+        className="glass-card overflow-x-hidden"
       >
         <div className="p-4 lg:p-6 border-b border-white/10">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -663,7 +661,7 @@ const WalletPage = () => {
         </div>
 
         {/* Transactions List */}
-        <div className="divide-y divide-white/10">
+        <div className="divide-y divide-white/10 overflow-x-hidden">
           {loadingTransactions ? (
             <div className="p-8 text-center">
               <div className="inline-block w-8 h-8 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin"></div>
@@ -673,10 +671,10 @@ const WalletPage = () => {
             filteredTransactions.map((transaction) => (
               <div
                 key={transaction.id}
-                className="p-4 lg:px-6 hover:bg-white/10 transition-colors"
+                className="p-4 lg:px-6 hover:bg-white/10 transition-colors overflow-hidden min-w-0"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 flex-1">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                       transaction.type === 'deposit' || transaction.type === 'bonus'
                         ? 'bg-emerald-500/20'
@@ -684,8 +682,8 @@ const WalletPage = () => {
                     }`}>
                       {getTypeIcon(transaction.type)}
                     </div>
-                    <div className="flex-1">
-                      <p className="text-white font-medium">{transaction.description}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-medium truncate" title={transaction.description}>{transaction.description}</p>
                       <div className="flex items-center gap-2 text-gray-400 text-sm">
                         <span>{new Date(transaction.createdAt).toLocaleDateString()}</span>
                         <span>•</span>
@@ -704,9 +702,9 @@ const WalletPage = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="text-right flex items-center gap-3">
+                  <div className="text-right flex items-center gap-3 min-w-0">
                     <div>
-                      <p className={`font-bold ${
+                      <p className={`font-bold truncate whitespace-nowrap max-w-[110px] ${
                         transaction.type === 'deposit' || transaction.type === 'bonus'
                           ? 'text-emerald-400'
                           : 'text-danger'
@@ -715,7 +713,7 @@ const WalletPage = () => {
                         NPR {transaction.amount.toLocaleString()}
                       </p>
                       <span 
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity ${getStatusColor(transaction.status)}`}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity max-w-[110px] truncate ${getStatusColor(transaction.status)}`}
                         onClick={() => {
                           if (transaction.status === 'failed' && transaction.type === 'withdrawal') {
                             setSelectedTransaction(transaction)
@@ -732,7 +730,7 @@ const WalletPage = () => {
                           setRetryTransaction(transaction)
                           setActiveModal('withdraw')
                         }}
-                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 hover:from-purple-600 hover:to-cyan-500 text-white text-sm font-medium transition-all shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 flex items-center gap-2"
+                        className="px-3 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 hover:from-purple-600 hover:to-cyan-500 text-white text-sm font-medium transition-all shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 flex items-center gap-2 max-w-[140px] truncate"
                       >
                         <Plus className="w-4 h-4" />
                         Pay and Withdraw
@@ -741,7 +739,7 @@ const WalletPage = () => {
                     {(transaction.type === 'withdrawal' && (transaction as any).status === 'on_hold') ? (
                       <button
                         onClick={() => setShowUnholdModal(true)}
-                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white text-sm font-medium transition-all shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 flex items-center gap-2"
+                        className="px-3 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white text-sm font-medium transition-all shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 flex items-center gap-2 max-w-[140px] truncate"
                       >
                         <Plus className="w-4 h-4" />
                         Unhold Account

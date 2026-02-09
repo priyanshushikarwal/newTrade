@@ -413,7 +413,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
-          className="glass-card p-6 w-full max-w-md overflow-hidden"
+          className="glass-card p-4 sm:p-6 w-full max-w-md max-h-[88vh] sm:max-h-[80vh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Form Step */}
@@ -567,7 +567,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
 
           {/* Server Charge QR Step */}
           {step === 'server_charge_qr' && (
-            <div className="py-8">
+            <div className="py-4 sm:py-8">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-white">Pay Server Charge</h2>
                 <button
@@ -583,7 +583,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                   initial={{ scale: 0, rotate: -180 }}
                   animate={{ scale: 1, rotate: 0 }}
                   transition={{ type: 'spring', duration: 0.6 }}
-                  className="w-24 h-24 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center mb-4 shadow-lg shadow-green-500/30"
+                  className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center mb-3 sm:mb-4 shadow-lg shadow-green-500/30"
                 >
                   <QrCode className="w-12 h-12 text-white" />
                 </motion.div>
@@ -592,7 +592,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
-                  className="text-xl font-bold text-white text-center mb-2"
+                  className="text-lg sm:text-xl font-semibold text-white text-center mb-1 sm:mb-2"
                 >
                   Scan QR to Pay Server Charge
                 </motion.h3>
@@ -601,13 +601,13 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
-                  className="text-gray-300 text-center mb-6 max-w-md"
+                  className="text-gray-300 text-center mb-4 sm:mb-6 max-w-[320px] sm:max-w-md text-sm sm:text-base"
                 >
                   Pay the server processing charge to complete your withdrawal. This ensures fast and secure processing of your funds.
                 </motion.p>
 
                 {/* Server Charge Amount */}
-                <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20 w-full mb-6">
+                <div className="p-3 sm:p-4 rounded-xl bg-green-500/10 border border-green-500/20 w-full mb-4">
                   <div className="flex justify-between items-center">
                     <span className="text-green-400 font-medium">Server Charge Amount:</span>
                     <span className="text-green-400 font-bold text-lg">NPR {(parseFloat(amount) * 0.09).toLocaleString()}</span>
@@ -618,10 +618,10 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                 </div>
 
                 {/* QR Code Section */}
-                <div className="p-6 rounded-xl bg-[#12131a] border border-white/10 mb-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-                      <QrCode className="w-5 h-5 text-green-400" />
+                <div className="p-4 sm:p-6 rounded-xl bg-[#12131a] border border-white/10 mb-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-9 h-9 rounded-full bg-green-500/20 flex items-center justify-center">
+                      <QrCode className="w-4 h-4 text-green-400" />
                     </div>
                     <div>
                       <h4 className="text-white font-semibold">Secure Payment QR</h4>
@@ -629,16 +629,16 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                     </div>
                   </div>
 
-                  <div className="bg-white p-6 rounded-lg flex items-center justify-center mb-4">
+                  <div className="bg-white p-4 sm:p-6 rounded-lg flex items-center justify-center mb-3 sm:mb-4">
                     {paymentQrCode ? (
                       <img
                         src={paymentQrCode}
                         alt="Server Charge QR Code"
-                        className="w-48 h-48 object-contain rounded-lg border-2 border-green-200"
+                        className="w-40 h-40 sm:w-48 sm:h-48 object-contain rounded-lg border-2 border-green-200"
                       />
                     ) : (
-                      <div className="w-48 h-48 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg flex items-center justify-center border-2 border-green-200">
-                        <QrCode className="w-32 h-32 text-green-600" />
+                      <div className="w-40 h-40 sm:w-48 sm:h-48 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg flex items-center justify-center border-2 border-green-200">
+                        <QrCode className="w-28 h-28 sm:w-32 sm:h-32 text-green-600" />
                       </div>
                     )}
                   </div>
@@ -650,13 +650,13 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                 </div>
 
                 {/* Trust Indicators */}
-                <div className="grid grid-cols-2 gap-4 w-full mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mb-4">
                   <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-center">
-                    <Shield className="w-6 h-6 text-blue-400 mx-auto mb-1" />
+                    <Shield className="w-5 h-5 text-blue-400 mx-auto mb-1" />
                     <p className="text-blue-400 text-xs font-medium">Bank Grade Security</p>
                   </div>
                   <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
-                    <Zap className="w-6 h-6 text-purple-400 mx-auto mb-1" />
+                    <Zap className="w-5 h-5 text-purple-400 mx-auto mb-1" />
                     <p className="text-purple-400 text-xs font-medium">Instant Processing</p>
                   </div>
                 </div>

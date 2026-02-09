@@ -67,7 +67,7 @@
 @layer components {
   /* Glass Card - NeonTrade Style */
   .glass-card {
-    @apply bg-[#12131a]/90 backdrop-blur-xl border border-white/10 rounded-2xl;
+    @apply bg-[#12131a]/90 backdrop-blur-xl border border-white/10 rounded-2xl overflow-x-hidden;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   }
 

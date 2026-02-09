@@ -19,7 +19,9 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
-import { updateBalance, addTransaction } from '@/store/slices/walletSlice'
+import { updateBalance, addTransaction, setBalance } from '@/store/slices/walletSlice'
+import { walletService } from '@/services/api'
+import toast from 'react-hot-toast'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, ComposedChart, Cell, ReferenceLine } from 'recharts'
 
 interface CandleData {
@@ -344,7 +346,7 @@ const TradePage = () => {
   }, [])
 
   // Complete trade function
-  const completeTrade = useCallback((trade: ActiveTrade) => {
+  const completeTrade = useCallback(async (trade: ActiveTrade) => {
     // Use the predetermined outcome that was set when trade was placed
     const userWins = predeterminedOutcomeRef.current === 'win'
     
@@ -396,15 +398,42 @@ const TradePage = () => {
       invested: Math.max(0, balance.invested - trade.amount)
     }))
 
-    // Add transaction
-    dispatch(addTransaction({
+    // Add transaction locally
+    const tx = {
       id: Date.now().toString(),
       type: userWins ? 'profit' : 'loss',
       amount: Math.abs(profit),
       status: 'completed',
       date: new Date().toISOString(),
       description: `${trade.type.toUpperCase()} ${stockConfig.symbol} - ${userWins ? 'Profit' : 'Loss'}`
-    }))
+    }
+
+    dispatch(addTransaction(tx))
+
+    // Persist trade result to server so WalletPage shows updated balance
+    try {
+      const res = await walletService.reportTradeResult(profit, trade.amount, tx.description)
+      console.log('Trade result reported to server:', res)
+
+      // Prefer fetching full balance object from server
+      try {
+        const serverBalance = await walletService.getBalance()
+        dispatch(setBalance(serverBalance as any))
+        toast.success('Wallet updated with trade result')
+      } catch (err) {
+        console.error('Failed to refresh balance after reporting trade result:', err)
+        // Fallback: if server returned numeric balance, use it as total/available
+        if (res && typeof res.balance === 'number') {
+          dispatch(setBalance({ total: res.balance, available: res.balance, blocked: 0, invested: Math.max(0, balance.invested - trade.amount) }))
+          toast.success('Wallet updated (fallback)')
+        } else {
+          toast.error('Could not update wallet balance on server')
+        }
+      }
+    } catch (err) {
+      console.error('Failed to persist trade result to server:', err)
+      toast.error('Failed to persist trade result. Your local transaction is shown but server balance may be out of sync.')
+    }
 
     // Show result
     setLastResult(result)
@@ -563,9 +592,7 @@ const TradePage = () => {
             exit={{ opacity: 0, y: -20 }}
             className="absolute top-16 left-1/2 -translate-x-1/2 z-40 md:left-1/2"
           >
-            <div className={`glass-card px-4 py-2 md:px-6 md:py-3 rounded-full flex items-center gap-3 md:gap-4 border-2 ${
-              activeTrade.type === 'buy' ? 'border-emerald-400' : 'border-danger'
-            }`}>
+            <div className={`glass-card px-4 py-2 md:px-6 md:py-3 rounded-full flex items-center gap-3 md:gap-4`}>
               <div className={`p-1.5 md:p-2 rounded-full ${
                 activeTrade.type === 'buy' ? 'bg-emerald-500/20' : 'bg-danger/20'
               }`}>
@@ -658,7 +685,7 @@ const TradePage = () => {
       <div className="flex-1 flex flex-col lg:grid lg:grid-cols-12 gap-2 md:gap-3 min-h-0 overflow-hidden">
         {/* Order Book - Hidden on mobile, shown on desktop */}
         <div className="hidden lg:flex lg:col-span-2 glass-card flex-col min-h-0">
-          <div className="flex border-b border-white/10">
+          <div className="flex">
             <button
               onClick={() => setOrderBookTab('orderbook')}
               className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
@@ -703,7 +730,7 @@ const TradePage = () => {
               </div>
             ))}
 
-            <div className="py-2 flex items-center justify-between border-y border-white/10 my-1">
+            <div className="py-2 flex items-center justify-between my-1">
               <motion.span
                 key={currentPrice}
                 initial={{ color: priceChange >= 0 ? '#10B981' : '#EF4444' }}
@@ -732,7 +759,7 @@ const TradePage = () => {
 
         {/* Chart - Takes full width on mobile, 7 cols on desktop */}
         <div className="flex-1 w-full lg:col-span-7 glass-card flex flex-col min-h-0 order-first lg:order-none">
-          <div className="flex items-center justify-between p-2 border-b border-white/10">
+          <div className="flex items-center justify-between p-2">
             <div className="flex gap-1">
               <button
                 onClick={() => setChartType('candle')}
@@ -775,7 +802,7 @@ const TradePage = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-1 px-2 py-1.5 border-b border-white/10 overflow-x-auto">
+          <div className="flex items-center gap-1 px-2 py-1.5 overflow-x-auto">
             {timeFrames.map((tf) => (
               <button
                 key={tf}
@@ -796,7 +823,7 @@ const TradePage = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className={`absolute left-2 md:left-4 top-4 z-10 px-2 md:px-3 py-1 md:py-1.5 rounded-lg ${
-                  activeTrade.type === 'buy' ? 'bg-emerald-500/20 border border-emerald-400' : 'bg-danger/20 border border-danger'
+                  activeTrade.type === 'buy' ? 'bg-emerald-500/20' : 'bg-danger/20'
                 }`}
               >
                 <div className="flex items-center gap-2">
