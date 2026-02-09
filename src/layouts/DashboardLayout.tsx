@@ -37,21 +37,21 @@ const DashboardLayout = () => {
   }, [])
 
   return (
-    <div className="min-h-screen bg-dark-bg">
+    <div className="min-h-screen min-h-[100dvh] bg-dark-bg overflow-x-hidden w-full max-w-full">
       {/* Top Navbar */}
       <DashboardNavbar />
 
-      <div className="flex">
+      <div className="flex w-full max-w-full overflow-x-hidden">
         {/* Sidebar - Hidden on mobile */}
-        <div className={`hidden lg:block ${isSidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300`}>
+        <div className={`hidden lg:block ${isSidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300 flex-shrink-0`}>
           <DashboardSidebar />
         </div>
 
         {/* Main Content */}
-        <main className={`flex-1 min-h-[calc(100vh-64px)] pb-20 lg:pb-6 transition-all duration-300
+        <main className={`flex-1 min-w-0 min-h-[calc(100vh-64px)] min-h-[calc(100dvh-64px)] pb-20 lg:pb-6 transition-all duration-300 overflow-x-hidden
           ${isSidebarOpen ? 'lg:ml-0' : 'lg:ml-0'}`}
         >
-          <div className="p-4 lg:p-6">
+          <div className="p-3 sm:p-4 lg:p-6 w-full max-w-full">
             <Outlet />
           </div>
         </main>

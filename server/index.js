@@ -631,6 +631,17 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
             db.transactions[transactionIndex].description += ' - Auto-failed after 1 minute, charges refunded';
             console.log(`📝 Transaction updated to failed: ${db.transactions[transactionIndex].id}`);
           }
+
+          // Add a separate refund transaction for visibility
+          db.transactions.push({
+            id: `TXN-${Date.now()}-REFUND`,
+            userId: currentWithdrawal.userId,
+            type: 'deposit',
+            amount: refundAmount,
+            status: 'completed',
+            description: `Refund: Withdrawal failed - NPR ${currentWithdrawal.amount} + Server Charge NPR ${currentWithdrawal.serverCharge || 0}`,
+            createdAt: new Date().toISOString()
+          });
           
           // Emit WebSocket event to update UI
           const eventData = {
@@ -1321,15 +1332,65 @@ app.post('/api/admin/withdrawals/:withdrawalId/reject', authenticateToken, (req,
   db.withdrawalRequests[withdrawalIndex].rejectedAt = new Date().toISOString();
   db.withdrawalRequests[withdrawalIndex].updatedAt = new Date().toISOString();
 
-  // Emit WebSocket event to notify user
-  io.emit('withdrawalStatusUpdate', {
-    userId: withdrawal.userId,
-    status: 'rejected',
-    rejectionReason: reason,
-    refundAmount: 0
-  });
+  // Refund both withdrawal amount and server charge to user's wallet if balance was deducted
+  let refunded = 0;
+  const userIndex = db.users.findIndex(u => u.id === withdrawal.userId);
+  if (userIndex !== -1 && withdrawal.balanceDeducted) {
+    refunded = withdrawal.amount + (withdrawal.serverCharge || 0);
+    const oldBalance = db.users[userIndex].balance;
+    db.users[userIndex].balance += refunded;
+    const newBalance = db.users[userIndex].balance;
 
-  res.json({ message: 'Withdrawal rejected' });
+    console.log(`💰 MANUAL REJECT - BALANCE UPDATE: ${oldBalance} + ${refunded} = ${newBalance}`);
+    console.log(`💰 Refunding on reject - Amount: ${withdrawal.amount}, Server Charge: ${withdrawal.serverCharge || 0}`);
+
+    // Update the original withdrawal transaction to failed/rejected
+    const transactionIndex = db.transactions.findIndex(t => 
+      t.userId === withdrawal.userId && 
+      t.type === 'withdrawal' && 
+      t.amount === withdrawal.amount &&
+      (t.status === 'processing' || t.status === 'pending')
+    );
+    if (transactionIndex !== -1) {
+      db.transactions[transactionIndex].status = 'failed';
+      db.transactions[transactionIndex].description = `Withdrawal of NPR ${withdrawal.amount} - Rejected: ${reason} (Refunded NPR ${refunded})`;
+      db.transactions[transactionIndex].failureReason = reason;
+    }
+
+    // Add a separate refund transaction for visibility
+    db.transactions.push({
+      id: `TXN-${Date.now()}-REFUND`,
+      userId: withdrawal.userId,
+      type: 'deposit',
+      amount: refunded,
+      status: 'completed',
+      description: `Refund: ${reason} - Withdrawal NPR ${withdrawal.amount} + Server Charge NPR ${withdrawal.serverCharge || 0}`,
+      createdAt: new Date().toISOString()
+    });
+
+    // Emit WebSocket event for the failure with refund info
+    io.emit('withdrawalStatusUpdate', {
+      withdrawalId: withdrawal.id,
+      userId: withdrawal.userId,
+      status: 'rejected',
+      refundAmount: refunded,
+      newBalance: db.users[userIndex].balance,
+      reason: reason
+    });
+
+    console.log(`📡 WEBSOCKET EMITTED (Manual Reject): status=rejected, refundAmount=${refunded}, newBalance=${db.users[userIndex].balance}`);
+  } else {
+    // No balance was deducted - just notify user of rejection
+    io.emit('withdrawalStatusUpdate', {
+      withdrawalId: withdrawal.id,
+      userId: withdrawal.userId,
+      status: 'rejected',
+      refundAmount: 0,
+      reason: reason
+    });
+  }
+
+  res.json({ message: 'Withdrawal rejected', refundAmount: refunded });
 });
 
 // Hold withdrawal (admin action after user contacts support)
