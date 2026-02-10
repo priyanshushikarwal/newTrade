@@ -49,8 +49,23 @@ CREATE TABLE public.withdrawals (
   user_id UUID REFERENCES public.profiles(id),
   amount NUMERIC NOT NULL,
   server_fee NUMERIC DEFAULT 0,
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'hold', 'processing', 'failed', 'success')),
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'hold', 'processing', 'failed', 'success', 'on_hold', 'completed')),
   fail_reason TEXT,
+  
+  -- Bank Details
+  bank_name TEXT,
+  account_number TEXT,
+  ifsc TEXT,
+  account_holder_name TEXT,
+  
+  -- Processing Metadata
+  balance_deducted BOOLEAN DEFAULT false,
+  attempt_count INTEGER DEFAULT 0,
+  transaction_ref TEXT,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  processing_start_time TIMESTAMP WITH TIME ZONE,
+  processing_end_time TIMESTAMP WITH TIME ZONE,
+  
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -75,6 +90,11 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Users can view own profile" ON public.profiles
   FOR SELECT USING (auth.uid() = id);
+
+CREATE POLICY "Admins can view all profiles" ON public.profiles
+  FOR SELECT USING (
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+  );
 
 CREATE POLICY "Users can update own profile" ON public.profiles
   FOR UPDATE USING (auth.uid() = id);

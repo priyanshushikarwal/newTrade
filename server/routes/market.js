@@ -110,7 +110,7 @@ router.post('/orders', authenticateToken, async (req, res) => {
 
                 await dbAdapter.transactions.create({
                     userId: user.id,
-                    type: 'debit',
+                    type: 'withdrawal',
                     amount: orderValue,
                     description: `BUY ${quantity} ${symbol} @ NPR ${orderPrice}`,
                     status: 'completed',

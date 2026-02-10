@@ -45,6 +45,7 @@ import AdminSupportPage from './pages/admin/AdminSupportPage'
 // Components
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import AdminRoute from './components/auth/AdminRoute'
+import ErrorBoundary from './components/ErrorBoundary'
 
 function App() {
   const dispatch = useAppDispatch()
@@ -75,7 +76,7 @@ function App() {
         <Route path="/trade" element={<TradePage />} />
         <Route path="/trade/:symbol" element={<TradePage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
-        <Route path="/wallet" element={<WalletPage />} />
+        <Route path="/wallet" element={<ErrorBoundary><WalletPage /></ErrorBoundary>} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/kyc" element={<KycPage />} />

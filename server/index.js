@@ -9,34 +9,68 @@ const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
+// Routes
+const authRoutes = require('./routes/auth');
+const marketRoutes = require('./routes/market');
+const settingsRoutes = require('./routes/settings');
+const walletRoutesFactory = require('./routes/wallet');
+
 // Initialize Supabase Admin Client
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set');
+let supabaseAdmin = null;
+if (supabaseUrl && supabaseServiceKey) {
+  supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+  console.log('✅ Supabase Admin Client Initialized');
+} else {
+  console.warn('⚠️ Supabase credentials missing. Using in-memory mode (data will not persist).');
 }
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'http://192.168.29.209:5173',  // Replace with your IP + port, or '*' for any
+    origin: '*',  // Allow all origins
     methods: ['GET', 'POST']
   }
 });
 
-app.use(cors());
+app.use(cors({
+  origin: true, // Allow all origins
+  credentials: true
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Config: time (ms) after which a pending withdrawal auto-fails if not processed
 const WITHDRAWAL_AUTO_FAIL_MS = process.env.WITHDRAWAL_AUTO_FAIL_MS ? parseInt(process.env.WITHDRAWAL_AUTO_FAIL_MS) : 300000; // default 5 minutes (300000ms)
 
+// Async middleware wrapper
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Test route
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Updated server' });
+});
+
+app.get('/api/test2', (req, res) => {
+  res.json({ message: 'Test2 works' });
+});
+
+// Mount routes
+const adminRoutes = require('./routes/admin')(io);
+const walletRoutes = walletRoutesFactory(io);
+app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/market', marketRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/wallet', walletRoutes);
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -176,18 +210,16 @@ const instruments = [
 ];
 
 // Middleware to verify Supabase JWT
-const authenticateToken = async (req, res, next) => {
-  try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) {
-      return res.status(401).json({ message: 'Access token required' });
-    }
+  if (!token) {
+    return res.status(401).json({ message: 'Access token required' });
+  }
 
-    // Verify token with Supabase
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-
+  // Verify token with Supabase
+  supabaseAdmin.auth.getUser(token).then(({ data: { user }, error }) => {
     if (error || !user) {
       return res.status(403).json({ message: 'Invalid or expired token' });
     }
@@ -198,10 +230,10 @@ const authenticateToken = async (req, res, next) => {
       role: user.role || 'user'
     };
     next();
-  } catch (error) {
+  }).catch((error) => {
     console.error('Token verification error:', error);
     return res.status(403).json({ message: 'Invalid or expired token' });
-  }
+  });
 };
 
 // Auth Routes
@@ -382,24 +414,40 @@ app.get('/api/auth/check', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/auth/profile', authenticateToken, (req, res) => {
-  const user = db.users.find(u => u.id === req.user.id);
-  if (!user) {
-    return res.status(404).json({ message: 'User not found' });
-  }
+app.get('/api/auth/profile', authenticateToken, async (req, res) => {
+  try {
+    // Get user profile from Supabase
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', req.user.id)
+      .single();
 
-  res.json({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-    balance: user.balance,
-    usedBalance: user.usedBalance,
-    kycStatus: user.kycStatus,
-    role: user.role,
-    withdrawalBlocked: user.withdrawalBlocked,
-    createdAt: user.createdAt
-  });
+    if (profileError || !profile) {
+      return res.status(404).json({ message: 'User profile not found' });
+    }
+
+    // Get wallet balance
+    const { data: wallet } = await supabaseAdmin
+      .from('wallets')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .single();
+
+    res.json({
+      user: {
+        id: req.user.id,
+        email: req.user.email,
+        role: profile.role,
+        balance: Number(wallet?.balance || 0),
+        kycStatus: profile.kyc_status,
+        withdrawalBlocked: profile.withdrawal_blocked
+      }
+    });
+  } catch (error) {
+    console.error('Profile fetch error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 // User Routes
@@ -433,522 +481,12 @@ app.put('/api/user/profile', authenticateToken, (req, res) => {
   res.json({ message: 'Profile updated successfully' });
 });
 
-// Wallet Routes
-app.get('/api/wallet/balance', authenticateToken, (req, res) => {
-  const user = db.users.find(u => u.id === req.user.id);
-  if (!user) {
-    return res.status(404).json({ message: 'User not found' });
-  }
 
-  const balanceData = {
-    available: user.balance - user.usedBalance,
-    blocked: user.usedBalance,
-    invested: user.usedBalance,
-    total: user.balance
-  };
-
-  console.log(`💰 Balance API called for user ${user.id}:`, balanceData);
-  console.log(`   Raw balance: ${user.balance}, usedBalance: ${user.usedBalance}`);
-
-  res.json(balanceData);
-});
-
-app.get('/api/wallet/transactions', authenticateToken, (req, res) => {
-  const transactions = db.transactions.filter(t => t.userId === req.user.id);
-  console.log(`📊 Transactions API called for user ${req.user.id}, returning ${transactions.length} transactions`);
-  res.json(transactions);
-});
-
-// Debug endpoint to check raw user data
-app.get('/api/debug/user', authenticateToken, (req, res) => {
-  const user = db.users.find(u => u.id === req.user.id);
-  if (!user) {
-    return res.status(404).json({ message: 'User not found' });
-  }
-
-  res.json({
-    id: user.id,
-    balance: user.balance,
-    usedBalance: user.usedBalance,
-    email: user.email
-  });
-});
-
-app.post('/api/wallet/deposit', authenticateToken, (req, res) => {
-  const { amount, method, transactionId, upiId, bankName, accountNumber, proofUrl, discountCode } = req.body;
-
-  const userIndex = db.users.findIndex(u => u.id === req.user.id);
-  if (userIndex === -1) {
-    return res.status(404).json({ message: 'User not found' });
-  }
-
-  // Calculate final amount with discount code
-  let finalAmount = amount;
-  if (discountCode === 'x100') {
-    finalAmount = amount * 2; // 100% bonus = double the amount
-  }
-
-  // Create PENDING deposit request
-  const deposit = {
-    id: `DEP-${Date.now()}`,
-    userId: req.user.id,
-    type: 'deposit',
-    amount: finalAmount,
-    description: `Deposit Request of NPR ${finalAmount}`,
-    method,
-    transactionId,
-    upiId,
-    bankName,
-    accountNumber,
-    proofUrl: proofUrl || null, // Store the proof image (base64)
-    status: 'pending', // Pending approval
-    reference: `DEP-${Date.now()}`,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  // Add to deposit requests
-  if (!db.depositRequests) {
-    db.depositRequests = [];
-  }
-  db.depositRequests.push(deposit);
-
-  // We do NOT add to transactions or update balance yet. 
-  // Optionally, we could add a 'pending' transaction for visibility in wallet history
-  const pendingTx = {
-    ...deposit,
-    status: 'pending' // Ensure status is pending
-  };
-  // pushing to transactions list allows user to see it in their history as 'pending'
-  db.transactions.push(pendingTx);
-
-  console.log('=== NEW DEPOSIT REQUEST ===');
-  console.log('ID:', deposit.id);
-  console.log('User:', req.user.id);
-  console.log('Amount:', deposit.amount);
-  console.log('Proof Provided:', !!proofUrl);
-  console.log('===========================');
-
-  res.json({
-    message: 'Deposit request submitted successfully. Waiting for admin approval.',
-    depositId: deposit.id,
-    status: 'pending',
-    amount: finalAmount
-  });
-});
-
-// Endpoint to persist simulated trade result (profit/loss)
-app.post('/api/wallet/trade-result', authenticateToken, (req, res) => {
-  const { profit, amount, description } = req.body; // profit can be negative for loss
-
-  const userIndex = db.users.findIndex(u => u.id === req.user.id);
-  if (userIndex === -1) {
-    return res.status(404).json({ message: 'User not found' });
-  }
-
-  // Apply profit/loss to user's balance
-  db.users[userIndex].balance += profit;
-
-  // Add a transaction record
-  const tx = {
-    id: `TX-${Date.now()}`,
-    userId: req.user.id,
-    type: profit >= 0 ? 'deposit' : 'withdrawal', // use existing types for compatibility
-    amount: Math.abs(profit),
-    status: 'completed',
-    description: description || (profit >= 0 ? 'Trade Profit' : 'Trade Loss'),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  db.transactions.push(tx);
-
-  console.log(`💰 Trade result applied for user ${req.user.id}: profit=${profit}, newBalance=${db.users[userIndex].balance}`);
-
-  res.json({ message: 'Trade result recorded', balance: db.users[userIndex].balance, transaction: tx });
-});
-
-app.post('/api/wallet/withdraw', authenticateToken, (req, res) => {
-  const { amount, deductImmediately, paymentProof } = req.body;
-
-  const user = db.users.find(u => u.id === req.user.id);
-  if (!user) {
-    return res.status(404).json({ message: 'User not found' });
-  }
-
-  // Check if user account is suspended for suspicious activity
-  if (user.suspendedForSuspiciousActivity) {
-    return res.status(403).json({
-      message: 'Account suspended due to suspicious activities',
-      suspended: true
-    });
-  }
-
-  // Check if user has withdrawal blocked
-  if (user.withdrawalBlocked) {
-    return res.status(400).json({ message: 'Withdrawal is currently blocked. Please contact support.' });
-  }
-
-  if (user.balance < amount) {
-    return res.status(400).json({ message: 'Insufficient balance' });
-  }
-
-  const withdrawal = {
-    id: `WD-${Date.now()}`,
-    userId: req.user.id,
-    userName: user.name,
-    userEmail: user.email,
-    amount,
-    serverCharge: paymentProof?.serverCharge || 0,
-    bankName: 'Pending Bank Details',
-    accountNumber: 'Via WhatsApp',
-    status: 'pending', // Always start as pending so admin can see it
-    attemptCount: 0,
-    isBlocked: false,
-    balanceDeducted: deductImmediately || false,
-    paymentProof: paymentProof ? {
-      utrNumber: paymentProof.utrNumber,
-      serverCharge: paymentProof.serverCharge
-    } : null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  // If deductImmediately flag is true, deduct the balance immediately
-  if (deductImmediately) {
-    const userIndex = db.users.findIndex(u => u.id === req.user.id);
-    db.users[userIndex].balance -= amount;
-
-    // Add transaction to history
-    db.transactions.push({
-      id: `TXN-${Date.now()}`,
-      userId: req.user.id,
-      type: 'withdrawal',
-      amount,
-      status: 'pending',
-      description: `Withdrawal of NPR ${amount} - Waiting for admin approval`,
-      createdAt: new Date().toISOString()
-    });
-  }
-
-  db.withdrawalRequests.push(withdrawal);
-
-  console.log('=== NEW WITHDRAWAL CREATED ===');
-  console.log('Withdrawal ID:', withdrawal.id);
-  console.log('User ID:', withdrawal.userId);
-  console.log('Amount:', withdrawal.amount);
-  console.log('Status:', withdrawal.status);
-  console.log('Total withdrawals in DB now:', db.withdrawalRequests.length);
-  console.log('===============================');
-
-  res.json({
-    message: 'Withdrawal request submitted successfully',
-    withdrawal,
-    newBalance: db.users.find(u => u.id === req.user.id).balance
-  });
-});
-
-// Get withdrawal status for user
-app.get('/api/wallet/withdrawal-status/:userId', authenticateToken, (req, res) => {
-  const userId = req.params.userId;
-
-  // Find the latest withdrawal for this user
-  const withdrawal = db.withdrawalRequests
-    .filter(w => w.userId === userId)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
-
-  const user = db.users.find(u => u.id === userId);
-
-  res.json({
-    withdrawal: withdrawal || null,
-    withdrawalBlocked: user?.withdrawalBlocked || false
-  });
-});
-
-// Update withdrawal with payment proof
-app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, (req, res) => {
-  const { paymentProof } = req.body;
-  const withdrawalId = req.params.withdrawalId;
-
-  const withdrawalIndex = db.withdrawalRequests.findIndex(w => w.id === withdrawalId);
-  if (withdrawalIndex === -1) {
-    return res.status(404).json({ message: 'Withdrawal request not found' });
-  }
-
-  const withdrawal = db.withdrawalRequests[withdrawalIndex];
-
-  // Update with payment proof and deduct balance
-  db.withdrawalRequests[withdrawalIndex].serverCharge = paymentProof.serverCharge;
-  db.withdrawalRequests[withdrawalIndex].paymentProof = {
-    utrNumber: paymentProof.utrNumber,
-    serverCharge: paymentProof.serverCharge,
-    screenshot: paymentProof.screenshot || null
-  };
-  db.withdrawalRequests[withdrawalIndex].balanceDeducted = true;
-  db.withdrawalRequests[withdrawalIndex].updatedAt = new Date().toISOString();
-
-  // Deduct balance (withdrawal amount + server charge)
-  const userIndex = db.users.findIndex(u => u.id === withdrawal.userId);
-  if (userIndex !== -1) {
-    const totalDeduction = withdrawal.amount + paymentProof.serverCharge;
-    const oldBalance = db.users[userIndex].balance;
-    db.users[userIndex].balance -= totalDeduction;
-    const newBalance = db.users[userIndex].balance;
-
-    console.log(`💰 PAYMENT PROOF SUBMITTED - BALANCE DEDUCTION:`);
-    console.log(`   Old Balance: ${oldBalance}`);
-    console.log(`   Withdrawal Amount: ${withdrawal.amount}`);
-    console.log(`   Server Charge: ${paymentProof.serverCharge}`);
-    console.log(`   Total Deduction: ${totalDeduction}`);
-    console.log(`   New Balance: ${newBalance}`);
-
-    // Add transaction to history
-    db.transactions.push({
-      id: `TXN-${Date.now()}`,
-      userId: withdrawal.userId,
-      type: 'withdrawal',
-      amount: withdrawal.amount,
-      status: 'pending',
-      description: `Withdrawal of NPR ${withdrawal.amount} (Server Charge: NPR ${paymentProof.serverCharge}) - Payment proof submitted`,
-      createdAt: new Date().toISOString()
-    });
-  }
-
-  res.json({
-    message: 'Payment proof submitted successfully',
-    withdrawal: db.withdrawalRequests[withdrawalIndex],
-    newBalance: db.users.find(u => u.id === withdrawal.userId)?.balance || 0
-  });
-
-  // Auto-fail logic: If withdrawal is not processed within 1 minute, fail it and refund balance
-  console.log(`⏰ Setting up auto-fail timer for withdrawal ${withdrawalId} - will fail in 60 seconds`);
-  setTimeout(() => {
-    console.log(`⏰ Auto-fail timer triggered for withdrawal ${withdrawalId}`);
-    const currentWithdrawalIndex = db.withdrawalRequests.findIndex(w => w.id === withdrawalId);
-    if (currentWithdrawalIndex !== -1) {
-      const currentWithdrawal = db.withdrawalRequests[currentWithdrawalIndex];
-      console.log(`📋 Current withdrawal status: ${currentWithdrawal.status}, balanceDeducted: ${currentWithdrawal.balanceDeducted}`);
-
-      // Only auto-fail if still pending and balance was deducted
-      if (currentWithdrawal.status === 'pending' && currentWithdrawal.balanceDeducted) {
-        console.log(`⏰ AUTO-FAIL: Withdrawal ${withdrawalId} not processed within 1 minute, failing and refunding...`);
-
-        // Mark withdrawal as failed
-        db.withdrawalRequests[currentWithdrawalIndex].status = 'failed';
-        db.withdrawalRequests[currentWithdrawalIndex].updatedAt = new Date().toISOString();
-
-        // Refund the balance (withdrawal amount + server charge)
-        const userIndex = db.users.findIndex(u => u.id === currentWithdrawal.userId);
-        if (userIndex !== -1) {
-          const refundAmount = currentWithdrawal.amount + (currentWithdrawal.serverCharge || 0);
-          const oldBalance = db.users[userIndex].balance;
-          db.users[userIndex].balance += refundAmount;
-          const newBalance = db.users[userIndex].balance;
-
-          console.log(`💸 AUTO-FAIL REFUND:`);
-          console.log(`   Withdrawal ID: ${withdrawalId}`);
-          console.log(`   Refund Amount: ${refundAmount} (Amount: ${currentWithdrawal.amount} + Server Charge: ${currentWithdrawal.serverCharge || 0})`);
-          console.log(`   Old Balance: ${oldBalance}`);
-          console.log(`   New Balance: ${newBalance}`);
-          console.log(`   User Balance in DB after refund: ${db.users[userIndex].balance}`);
-
-          // Update transaction status to failed
-          const transactionIndex = db.transactions.findIndex(t =>
-            t.userId === currentWithdrawal.userId &&
-            t.type === 'withdrawal' &&
-            t.status === 'pending' &&
-            t.description.includes(`Withdrawal of NPR ${currentWithdrawal.amount}`)
-          );
-          if (transactionIndex !== -1) {
-            db.transactions[transactionIndex].status = 'failed';
-            db.transactions[transactionIndex].description += ' - Auto-failed after 1 minute, charges refunded';
-            console.log(`📝 Transaction updated to failed: ${db.transactions[transactionIndex].id}`);
-          }
-
-          // Add a separate refund transaction for visibility
-          db.transactions.push({
-            id: `TXN-${Date.now()}-REFUND`,
-            userId: currentWithdrawal.userId,
-            type: 'deposit',
-            amount: refundAmount,
-            status: 'completed',
-            description: `Refund: Withdrawal failed - NPR ${currentWithdrawal.amount} + Server Charge NPR ${currentWithdrawal.serverCharge || 0}`,
-            createdAt: new Date().toISOString()
-          });
-
-          // Emit WebSocket event to update UI
-          const eventData = {
-            withdrawalId: withdrawalId,
-            userId: currentWithdrawal.userId,
-            status: 'failed',
-            newBalance: newBalance,
-            refundAmount: refundAmount,
-            reason: 'Auto-failed after 1 minute'
-          };
-          console.log(`📡 Emitting WebSocket event:`, eventData);
-          console.log(`📡 Connected sockets: ${io.sockets.sockets.size}`);
-          io.emit('withdrawalStatusUpdate', eventData);
-
-          console.log(`📡 WebSocket event emitted for failed withdrawal: ${withdrawalId}`);
-        } else {
-          console.log(`❌ User not found for refund: ${currentWithdrawal.userId}`);
-        }
-      } else {
-        console.log(`⏰ Auto-fail skipped - Status: ${currentWithdrawal.status}, BalanceDeducted: ${currentWithdrawal.balanceDeducted}`);
-      }
-    } else {
-      console.log(`❌ Withdrawal not found for auto-fail: ${withdrawalId}`);
-    }
-  }, WITHDRAWAL_AUTO_FAIL_MS); // Auto-fail timer (configurable via WITHDRAWAL_AUTO_FAIL_MS env var)
-});
-
-// Contact support for withdrawal
-app.post('/api/wallet/withdrawal-support', authenticateToken, (req, res) => {
-  const { withdrawalId, message } = req.body;
-
-  const withdrawal = db.withdrawalRequests.find(w => w.id === withdrawalId);
-  if (!withdrawal) {
-    return res.status(404).json({ message: 'Withdrawal not found' });
-  }
-
-  // Create support ticket
-  const ticket = {
-    id: `TKT-${Date.now()}`,
-    userId: req.user.id,
-    subject: `Withdrawal Support - ${withdrawalId}`,
-    category: 'withdrawal',
-    priority: 'high',
-    status: 'open',
-    withdrawalId: withdrawalId,
-    messages: [
-      {
-        id: `MSG-${Date.now()}`,
-        sender: 'user',
-        text: message,
-        createdAt: new Date().toISOString()
-      }
-    ],
-    createdAt: new Date().toISOString()
-  };
-
-  db.supportTickets.push(ticket);
-
-  // Update withdrawal with support ticket ID
-  const withdrawalIndex = db.withdrawalRequests.findIndex(w => w.id === withdrawalId);
-  if (withdrawalIndex !== -1) {
-    db.withdrawalRequests[withdrawalIndex].supportTicketId = ticket.id;
-  }
-
-  res.json({ message: 'Support ticket created successfully', ticketId: ticket.id });
-});
-
-// Get user's unhold request status
-app.get('/api/wallet/unhold-status', authenticateToken, (req, res) => {
-  if (!db.unholdRequests) {
-    db.unholdRequests = [];
-  }
-
-  // Find pending unhold request for this user
-  const pendingUnholdRequest = db.unholdRequests.find(
-    r => r.userId === req.user.id && r.status === 'pending'
-  );
-
-  res.json({
-    hasPendingUnholdRequest: !!pendingUnholdRequest,
-    unholdRequest: pendingUnholdRequest || null
-  });
-});
-
-app.post('/api/wallet/unhold-payment-proof', authenticateToken, (req, res) => {
-  const { utrNumber, unholdCharge } = req.body;
-  const user = db.users.find(u => u.id === req.user.id);
-
-  if (!user) {
-    return res.status(404).json({ message: 'User not found' });
-  }
-
-  // Check if user has sufficient balance
-  if (user.balance < unholdCharge) {
-    return res.status(400).json({ message: 'Insufficient balance to pay unhold charge' });
-  }
-
-  // Deduct the unhold charge from user balance
-  const userIndex = db.users.findIndex(u => u.id === req.user.id);
-  const oldBalance = db.users[userIndex].balance;
-  db.users[userIndex].balance -= unholdCharge;
-  const newBalance = db.users[userIndex].balance;
-
-  console.log(`💰 UNHOLD CHARGE PAYMENT:`);
-  console.log(`   Old Balance: ${oldBalance}`);
-  console.log(`   Unhold Charge (18%): ${unholdCharge}`);
-  console.log(`   New Balance: ${newBalance}`);
-
-  // Create unhold payment request that admin needs to approve
-  const unholdRequest = {
-    id: `UNHOLD-${Date.now()}`,
-    userId: req.user.id,
-    unholdCharge: unholdCharge,
-    utrNumber: utrNumber,
-    status: 'pending',
-    createdAt: new Date().toISOString()
-  };
-
-  // Store unhold requests
-  if (!db.unholdRequests) {
-    db.unholdRequests = [];
-  }
-  db.unholdRequests.push(unholdRequest);
-
-  // Add transaction for unhold charge payment
-  db.transactions.push({
-    id: `TXN-${Date.now()}`,
-    userId: req.user.id,
-    type: 'debit',
-    amount: unholdCharge,
-    description: `Account Unhold Charge (18% of balance) - Payment proof submitted`,
-    status: 'pending',
-    createdAt: new Date().toISOString()
-  });
-
-  res.json({
-    message: 'Unhold payment proof submitted successfully. Admin will review your request.',
-    unholdRequest,
-    newBalance
-  });
-});
-
-app.post('/api/wallet/unhold-account', authenticateToken, (req, res) => {
-  const user = db.users.find(u => u.id === req.user.id);
-  if (!user) {
-    return res.status(404).json({ message: 'User not found' });
-  }
-
-  // Remove on_hold status from user
-  user.accountStatus = 'active';
-
-  // Update all on_hold transactions to cancelled
-  db.transactions.forEach(transaction => {
-    if (transaction.userId === req.user.id && transaction.status === 'on_hold') {
-      transaction.status = 'cancelled';
-      transaction.description = transaction.description.replace('- On Hold', '- Cancelled by user');
-    }
-  });
-
-  // Update all on_hold withdrawal requests to cancelled
-  db.withdrawalRequests.forEach(withdrawal => {
-    if (withdrawal.userId === req.user.id && withdrawal.status === 'on_hold') {
-      withdrawal.status = 'cancelled';
-    }
-  });
-
-  // Emit WebSocket event
-  io.emit('accountStatusUpdate', {
-    userId: req.user.id,
-    status: 'active'
-  });
-
-  res.json({ message: 'Account unhold request processed successfully' });
-});
+// ============================================
+// OLD INLINE WALLET ROUTES REMOVED
+// All wallet routes are now handled by routes/wallet.js
+// which uses dbAdapter (Supabase) instead of the in-memory db.
+// ============================================
 
 // Market Routes
 app.get('/api/market/instruments', (req, res) => {

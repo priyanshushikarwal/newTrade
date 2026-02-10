@@ -1,18 +1,18 @@
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const dbAdapter = require('../db-adapter');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const jwt = require('jsonwebtoken');
+const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set');
+let supabaseAdmin = null;
+if (supabaseUrl && supabaseServiceKey) {
+    supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 }
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 // Signup
 router.post('/signup', async (req, res) => {
@@ -24,7 +24,62 @@ router.post('/signup', async (req, res) => {
             return res.status(400).json({ message: 'Email and password are required' });
         }
 
-        // Create user in Supabase Auth
+        if (!supabaseAdmin) {
+            // Memory-db mode
+            const existingUser = await dbAdapter.profiles.findByEmail(email);
+            if (existingUser) {
+                return res.status(400).json({ message: 'User already exists' });
+            }
+
+            const userId = Date.now().toString();
+            const user = {
+                id: userId,
+                email,
+                phone,
+                role: 'user',
+                kycStatus: 'pending',
+                withdrawalBlocked: false,
+                createdAt: new Date().toISOString()
+            };
+
+            // Create profile
+            await dbAdapter.profiles.create(user);
+
+            // Create wallet
+            await dbAdapter.wallets.create({
+                userId,
+                balance: 0,
+                lockedBalance: 0
+            });
+
+            // Generate JWT token
+            const token = jwt.sign(
+                {
+                    id: userId,
+                    email,
+                    role: 'user',
+                    kyc_status: 'pending',
+                    withdrawal_blocked: false
+                },
+                'your-secret-key',
+                { expiresIn: '24h' }
+            );
+
+            res.json({
+                token,
+                user: {
+                    id: userId,
+                    email,
+                    role: 'user',
+                    balance: 0,
+                    kycStatus: 'pending',
+                    withdrawalBlocked: false
+                }
+            });
+            return;
+        }
+
+        // Supabase mode
         console.log('Creating user in Supabase...');
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
             email,
@@ -39,18 +94,79 @@ router.post('/signup', async (req, res) => {
 
         console.log('User created successfully:', authData.user.id, authData.user.email);
 
-        // Update profile with additional info
-        const { error: profileError } = await supabaseAdmin
+        // Insert profile with additional info
+        // Check if profile exists (handle Trigger creation)
+        const { data: existingProfile } = await supabaseAdmin
             .from('profiles')
-            .update({
-                phone,
-                kyc_status: 'pending',
-                withdrawal_blocked: false
-            })
-            .eq('id', authData.user.id);
+            .select('id')
+            .eq('id', authData.user.id)
+            .single();
+
+        let profileError;
+        if (existingProfile) {
+            const { error } = await supabaseAdmin
+                .from('profiles')
+                .update({
+                    email: authData.user.email,
+                    phone,
+                    role: 'user',
+                    kyc_status: 'pending',
+                    withdrawal_blocked: false
+                })
+                .eq('id', authData.user.id);
+            profileError = error;
+        } else {
+            const { error } = await supabaseAdmin
+                .from('profiles')
+                .insert({
+                    id: authData.user.id,
+                    email: authData.user.email,
+                    phone,
+                    role: 'user',
+                    kyc_status: 'pending',
+                    withdrawal_blocked: false
+                });
+            profileError = error;
+        }
 
         if (profileError) {
-            console.error('Profile update error:', profileError);
+            console.error('Profile insert/update error:', JSON.stringify(profileError, null, 2));
+            // Clean up: delete the auth user if profile creation fails
+            await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+            return res.status(500).json({ message: 'Failed to create user profile', error: profileError.message });
+        }
+
+        // Insert wallet
+        // Check if wallet exists
+        const { data: existingWallet } = await supabaseAdmin
+            .from('wallets')
+            .select('id')
+            .eq('user_id', authData.user.id)
+            .single();
+
+        let walletError;
+        if (existingWallet) {
+            const { error } = await supabaseAdmin
+                .from('wallets')
+                .update({
+                    balance: 0,
+                    locked_balance: 0
+                })
+                .eq('user_id', authData.user.id);
+            walletError = error;
+        } else {
+            const { error } = await supabaseAdmin
+                .from('wallets')
+                .insert({
+                    user_id: authData.user.id,
+                    balance: 0,
+                    locked_balance: 0
+                });
+            walletError = error;
+        }
+
+        if (walletError) {
+            console.error('Wallet insert error:', walletError);
         }
 
         // Get wallet info
@@ -86,6 +202,44 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ message: 'Email and password are required' });
         }
 
+        if (!supabaseAdmin) {
+            // Memory-db mode
+            const user = await dbAdapter.profiles.findByEmail(email);
+            if (!user) {
+                return res.status(401).json({ message: 'Invalid email or password' });
+            }
+
+            // Get wallet
+            const wallet = await dbAdapter.wallets.findByUserId(user.id);
+
+            // Generate JWT token
+            const token = jwt.sign(
+                {
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
+                    kyc_status: user.kycStatus,
+                    withdrawal_blocked: user.withdrawalBlocked
+                },
+                'your-secret-key',
+                { expiresIn: '24h' }
+            );
+
+            res.json({
+                token,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
+                    balance: Number(wallet?.balance || 0),
+                    kycStatus: user.kycStatus,
+                    withdrawalBlocked: user.withdrawalBlocked
+                }
+            });
+            return;
+        }
+
+        // Supabase mode
         // Sign in with Supabase
         const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
             email,
@@ -121,8 +275,8 @@ router.post('/login', async (req, res) => {
                 email: authData.user.email,
                 role: profile.role,
                 balance: Number(wallet?.balance || 0),
-                kyc_status: profile.kyc_status,
-                withdrawal_blocked: profile.withdrawal_blocked
+                kycStatus: profile.kyc_status,
+                withdrawalBlocked: profile.withdrawal_blocked
             }
         });
     } catch (error) {
@@ -134,8 +288,28 @@ router.post('/login', async (req, res) => {
 // Check Auth
 router.get('/check', authenticateToken, async (req, res) => {
     try {
-        // Get wallet balance
-        const { data: wallet } = await dbAdapter.wallets.findByUserId(req.user.id);
+        if (!supabaseAdmin) {
+            // Memory-db mode
+            const wallet = await dbAdapter.wallets.findByUserId(req.user.id);
+            res.json({
+                user: {
+                    id: req.user.id,
+                    email: req.user.email,
+                    role: req.user.role,
+                    balance: Number(wallet?.balance || 0),
+                    kycStatus: req.user.kyc_status,
+                    withdrawalBlocked: req.user.withdrawal_blocked
+                }
+            });
+            return;
+        }
+
+        // Get wallet balance from Supabase
+        const { data: wallet } = await supabaseAdmin
+            .from('wallets')
+            .select('*')
+            .eq('user_id', req.user.id)
+            .single();
 
         res.json({
             user: {
@@ -143,8 +317,8 @@ router.get('/check', authenticateToken, async (req, res) => {
                 email: req.user.email,
                 role: req.user.role,
                 balance: Number(wallet?.balance || 0),
-                kyc_status: req.user.kyc_status,
-                withdrawal_blocked: req.user.withdrawal_blocked
+                kycStatus: req.user.kyc_status,
+                withdrawalBlocked: req.user.withdrawal_blocked
             }
         });
     } catch (error) {
@@ -153,46 +327,36 @@ router.get('/check', authenticateToken, async (req, res) => {
     }
 });
 
-module.exports = router;
-            return res.status(404).json({ message: 'User not found' });
+// Get Profile
+router.get('/profile', authenticateToken, async (req, res) => {
+    try {
+        // Get user profile from Supabase
+        const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('id', req.user.id)
+            .single();
+
+        if (profileError || !profile) {
+            return res.status(404).json({ message: 'User profile not found' });
         }
+
+        // Get wallet balance
+        const { data: wallet } = await supabaseAdmin
+            .from('wallets')
+            .select('*')
+            .eq('user_id', req.user.id)
+            .single();
 
         res.json({
             user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                balance: Number(user.balance),
-                kycStatus: user.kycStatus,
-                withdrawalBlocked: user.withdrawalBlocked
+                id: req.user.id,
+                email: req.user.email,
+                role: profile.role,
+                balance: Number(wallet?.balance || 0),
+                kycStatus: profile.kyc_status,
+                withdrawalBlocked: profile.withdrawal_blocked
             }
-        });
-    } catch (error) {
-        console.error('Auth check error:', error);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-});
-
-// Profile Full
-router.get('/profile', authenticateToken, async (req, res) => {
-    try {
-        const user = await dbAdapter.users.findById(req.user.id);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        res.json({
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            phone: user.phone,
-            balance: Number(user.balance),
-            usedBalance: Number(user.usedBalance),
-            kycStatus: user.kycStatus,
-            role: user.role,
-            withdrawalBlocked: user.withdrawalBlocked,
-            createdAt: user.createdAt
         });
     } catch (error) {
         console.error('Profile fetch error:', error);

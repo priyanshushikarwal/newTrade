@@ -5,27 +5,38 @@ const fs = require('fs');
 // Configure multer for file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        // Only used for QR codes currently
-        const uploadDir = path.join(__dirname, '../uploads', 'qr-codes');
+        let folder = 'others';
+        if (file.fieldname === 'paymentProof') {
+            folder = 'proofs';
+        } else if (file.fieldname === 'qrCode') {
+            folder = 'qr-codes';
+        }
+
+        const uploadDir = path.join(__dirname, '../uploads', folder);
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true });
         }
         cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
-        const uniqueName = `payment-qr-${Date.now()}${path.extname(file.originalname)}`;
+        const uniqueName = `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`;
         cb(null, uniqueName);
     }
 });
 
 const upload = multer({
     storage,
-    limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
     fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
+        // Allow images and PDFs
+        const allowedTypes = /jpeg|jpg|png|gif|pdf/;
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedTypes.test(file.mimetype);
+
+        if (extname && mimetype) {
+            return cb(null, true);
         } else {
-            cb(new Error('Only image files are allowed'));
+            cb(new Error('Only images and PDF files are allowed!'));
         }
     }
 });

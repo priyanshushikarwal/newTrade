@@ -138,15 +138,16 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
     }
   }, [step])
 
-  // Redirect to wallet when withdrawal succeeds
+  // Close modal when withdrawal succeeds
   useEffect(() => {
     if (step === 'success') {
       const timer = setTimeout(() => {
-        navigate('/wallet')
+        if (onRefreshWallet) onRefreshWallet()
+        onClose()
       }, 5000)
       return () => clearTimeout(timer)
     }
-  }, [step, navigate])
+  }, [step, onClose, onRefreshWallet])
 
   // Poll for withdrawal status when waiting for admin OR processing
   useEffect(() => {

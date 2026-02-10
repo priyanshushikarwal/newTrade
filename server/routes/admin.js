@@ -15,6 +15,8 @@ module.exports = (io) => {
         next();
     };
 
+    // Apply authentication middleware first, then admin check
+    router.use(authenticateToken);
     router.use(ensureAdmin);
 
     // Users List
@@ -30,6 +32,33 @@ module.exports = (io) => {
             };
         }));
         res.json(enriched);
+    });
+
+    // Update User
+    router.put('/users/:id', async (req, res) => {
+        try {
+            const { id } = req.params;
+            const updates = req.body;
+
+            // Validate that user exists
+            const existingUser = await dbAdapter.profiles.findById(id);
+            if (!existingUser) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+
+            // Update user profile
+            await dbAdapter.profiles.update(id, updates);
+
+            // If role is being updated to admin, ensure proper permissions
+            if (updates.role === 'admin') {
+                // Additional admin setup if needed
+            }
+
+            res.json({ message: 'User updated successfully' });
+        } catch (error) {
+            console.error('Error updating user:', error);
+            res.status(500).json({ message: 'Error updating user' });
+        }
     });
 
     // Deposits
@@ -73,6 +102,15 @@ module.exports = (io) => {
                 createdAt: new Date().toISOString()
             });
 
+            // Notify user via WebSocket
+            io.emit('depositApproved', {
+                depositId: id,
+                userId: deposit.userId,
+                amount: Number(deposit.amount),
+                newBalance: newBalance,
+                approvedAt: new Date().toISOString()
+            });
+
             res.json({ message: 'Deposit approved successfully' });
         } catch (e) { res.status(500).json({ message: 'Error' }); }
     });
@@ -88,6 +126,45 @@ module.exports = (io) => {
             rejectedAt: new Date().toISOString()
         });
         res.json({ message: 'Deposit rejected' });
+    });
+
+    // KYC Requests
+    router.get('/kyc-requests', async (req, res) => {
+        const kycRequests = await dbAdapter.kycRequests.getAll();
+        // Enrich with user info
+        const profiles = await dbAdapter.profiles.getAll();
+        const profileMap = {};
+        profiles.forEach(p => profileMap[p.id] = p);
+
+        const enriched = kycRequests.map(k => ({
+            ...k,
+            userName: profileMap[k.userId]?.name || 'Unknown',
+            userEmail: profileMap[k.userId]?.email || 'Unknown'
+        }));
+        res.json(enriched);
+    });
+
+    router.post('/kyc/:kycId/approve', async (req, res) => {
+        const { kycId } = req.params;
+        const kycRequest = await dbAdapter.kycRequests.findById(kycId);
+        if (!kycRequest) return res.status(404).json({ message: 'KYC request not found' });
+
+        await dbAdapter.kycRequests.update(kycId, { status: 'approved' });
+        await dbAdapter.profiles.update(kycRequest.userId, { kycStatus: 'approved' });
+
+        res.json({ message: 'KYC request approved' });
+    });
+
+    router.post('/kyc/:kycId/reject', async (req, res) => {
+        const { reason } = req.body;
+        const { kycId } = req.params;
+        const kycRequest = await dbAdapter.kycRequests.findById(kycId);
+        if (!kycRequest) return res.status(404).json({ message: 'KYC request not found' });
+
+        await dbAdapter.kycRequests.update(kycId, { status: 'rejected', rejectionReason: reason });
+        await dbAdapter.profiles.update(kycRequest.userId, { kycStatus: 'rejected' });
+
+        res.json({ message: 'KYC request rejected' });
     });
 
     // Withdrawals
@@ -143,7 +220,11 @@ module.exports = (io) => {
 
             if (failures >= 2) {
                 // 3rd attempt -> Hold
-                await dbAdapter.withdrawals.update(id, { status: 'on_hold', failureReason: 'Account on hold due to technical server errors' });
+                await dbAdapter.withdrawals.update(id, { status: 'on_hold', failReason: 'Account on hold due to technical server errors' });
+                await dbAdapter.transactions.updateByReference(id, {
+                    status: 'on_hold',
+                    description: `Withdrawal on hold: Account on hold due to technical server errors`
+                });
                 io.emit('withdrawalStatusUpdate', {
                     withdrawalId: id,
                     userId: current.userId,
@@ -160,7 +241,11 @@ module.exports = (io) => {
                     const completed = await dbAdapter.withdrawals.findById(id);
                     if (completed && completed.status === 'completed') {
                         const reason = 'Due Bank Electronic Charge';
-                        await dbAdapter.withdrawals.update(id, { status: 'failed', failureReason: reason });
+                        await dbAdapter.withdrawals.update(id, { status: 'failed', failReason: reason });
+                        await dbAdapter.transactions.updateByReference(id, {
+                            status: 'failed',
+                            description: `Withdrawal failed: ${reason}`
+                        });
 
                         // Refund logic
                         if (completed.balanceDeducted) {
@@ -187,7 +272,11 @@ module.exports = (io) => {
                 }, 60000);
             } else {
                 // 1st attempt -> Fail
-                await dbAdapter.withdrawals.update(id, { status: 'failed', failureReason: 'Auto-failed after 1 minute' });
+                await dbAdapter.withdrawals.update(id, { status: 'failed', failReason: 'Auto-failed after 1 minute' });
+                await dbAdapter.transactions.updateByReference(id, {
+                    status: 'failed',
+                    description: 'Withdrawal failed: Auto-failed after 1 minute'
+                });
                 if (current.balanceDeducted) {
                     const refund = Number(current.amount) + Number(current.serverCharge || 0);
                     const wallet = await dbAdapter.wallets.findByUserId(current.userId);
@@ -286,6 +375,76 @@ module.exports = (io) => {
             } catch (e) { console.error(e); }
         }
         res.json({ message: 'QR code deleted successfully' });
+    });
+
+    // Unhold Requests
+    router.get('/unhold-requests', async (req, res) => {
+        try {
+            const requests = await dbAdapter.unholdRequests.getAll();
+            // Enhance with user details using Promise.all
+            const enhancedRequests = await Promise.all(requests.map(async (req) => {
+                // Try to find profile by ID (userId)
+                let profile = null;
+                try {
+                    // Assuming findById exists, if not try findByUserId or raw supabase
+                    if (dbAdapter.profiles.findById) {
+                        profile = await dbAdapter.profiles.findById(req.userId);
+                    } else if (dbAdapter.profiles.findByUserId) {
+                        profile = await dbAdapter.profiles.findByUserId(req.userId);
+                    }
+                } catch (e) { /* ignore profile fetch error */ }
+                return { ...req, user: profile ? { email: profile.email } : { email: 'Unknown' } };
+            }));
+            res.json(enhancedRequests);
+        } catch (e) {
+            console.error('Error fetching unhold requests:', e);
+            res.status(500).json({ message: 'Internal Server Error' });
+        }
+    });
+
+    router.post('/unhold-requests/:id/approve', async (req, res) => {
+        try {
+            const { id } = req.params;
+            const request = await dbAdapter.unholdRequests.findById(id);
+            if (!request) return res.status(404).json({ message: 'Request not found' });
+
+            // Approve request
+            await dbAdapter.unholdRequests.update(id, { status: 'approved' });
+
+            // Unblock user withdrawals (update 'on_hold' withdrawals to 'failed')
+            const withdrawals = await dbAdapter.withdrawals.findByUserId(request.userId);
+            const onHoldWithdrawals = withdrawals.filter(w => w.status === 'on_hold');
+
+            for (const w of onHoldWithdrawals) {
+                await dbAdapter.withdrawals.update(w.id, { status: 'failed', failReason: 'Unhold request approved - Please try again' });
+                // Sync transaction
+                if (dbAdapter.transactions.updateByReference) {
+                    await dbAdapter.transactions.updateByReference(w.id, { status: 'failed', description: 'Withdrawal failed: Unhold request approved - Please try again' });
+                }
+            }
+
+            // Also unblock profile if blocked
+            if (dbAdapter.profiles.update) {
+                await dbAdapter.profiles.update(request.userId, { withdrawalBlocked: false });
+            }
+
+            res.json({ message: 'Unhold request approved' });
+        } catch (e) {
+            console.error('Error approving unhold request:', e);
+            res.status(500).json({ message: 'Internal Server Error' });
+        }
+    });
+
+    router.post('/unhold-requests/:id/reject', async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { reason } = req.body;
+            await dbAdapter.unholdRequests.update(id, { status: 'rejected', rejectionReason: reason });
+            res.json({ message: 'Unhold request rejected' });
+        } catch (e) {
+            console.error('Error rejecting unhold request:', e);
+            res.status(500).json({ message: 'Internal Server Error' });
+        }
     });
 
     return router;

@@ -62,6 +62,8 @@ const WalletPage = () => {
   const [depositStatus, setDepositStatus] = useState<'idle' | 'loading' | 'failed'>('idle')
   const [depositStep, setDepositStep] = useState<'form' | 'qr' | 'upload' | 'submitted'>('form')
   const [paymentProof, setPaymentProof] = useState<File | null>(null)
+  const [showDepositSuccess, setShowDepositSuccess] = useState(false)
+  const [approvedDeposit, setApprovedDeposit] = useState<{amount: number, newBalance: number} | null>(null)
 
   // QR Code state
   const [paymentQrCode, setPaymentQrCode] = useState<string | null>(null)
@@ -339,10 +341,48 @@ const WalletPage = () => {
 
       socket.on('accountStatusUpdate', handleAccountStatusUpdate)
 
+      // Listen for deposit approval updates
+      const handleDepositApproved = (data: { userId: string; depositId: string; amount: number; newBalance: number }) => {
+        console.log('💰 Deposit approved received:', data)
+        if (data.userId === user.id) {
+          console.log('✅ Deposit approved for current user, showing success dialog')
+
+          // Update balance immediately
+          walletService.getBalance().then((serverBalance) => {
+            const balance = serverBalance as WalletBalance
+            console.log('💵 Updated balance after deposit approval:', balance)
+            dispatch(setBalance(balance))
+          }).catch((error) => {
+            console.error('Failed to get updated balance after deposit approval:', error)
+          })
+
+          // Refresh transactions
+          walletService.getTransactions().then((transactionData) => {
+            setTransactions(transactionData || [])
+            console.log('📊 Transactions refreshed after deposit approval')
+          }).catch((error) => {
+            console.error('Failed to refresh transactions after deposit approval:', error)
+          })
+
+          // Show success dialog
+          setApprovedDeposit({ amount: data.amount, newBalance: data.newBalance })
+          setShowDepositSuccess(true)
+
+          // Close deposit modal if it's open
+          if (activeModal === 'deposit') {
+            setActiveModal(null)
+            resetDepositModal()
+          }
+        }
+      }
+
+      socket.on('depositApproved', handleDepositApproved)
+
       return () => {
-        console.log('🔇 Removing WebSocket listener')
+        console.log('🔇 Removing WebSocket listeners')
         socket.off('withdrawalStatusUpdate', handleStatusUpdate)
         socket.off('accountStatusUpdate', handleAccountStatusUpdate)
+        socket.off('depositApproved', handleDepositApproved)
       }
     } else {
       console.log('🔌 WebSocket not available or user not logged in')
@@ -1061,10 +1101,10 @@ const WalletPage = () => {
                     <CheckCircle className="w-10 h-10 text-emerald-400" />
                   </motion.div>
 
-                  <h3 className="text-xl font-bold text-white mb-2">Deposit Request Submitted</h3>
+                  <h3 className="text-xl font-bold text-white mb-2">Processing Your Deposit</h3>
                   <p className="text-gray-400 max-w-xs mb-8">
-                    We have received your deposit request of NPR {parseFloat(depositAmount).toLocaleString()}.
-                    Admin is processing your request. The amount will be added to your wallet after verification.
+                    Your deposit request of NPR {parseFloat(depositAmount).toLocaleString()} is being processed.
+                    You will be notified once it's approved and the amount is added to your wallet.
                   </p>
 
                   <button
@@ -1254,6 +1294,97 @@ const WalletPage = () => {
                 >
                   OK, Got It
                 </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Deposit Success Modal */}
+      <AnimatePresence>
+        {showDepositSuccess && approvedDeposit && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => {
+              setShowDepositSuccess(false)
+              setApprovedDeposit(null)
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="glass-card p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-white">Deposit Successful!</h2>
+                <button
+                  onClick={() => {
+                    setShowDepositSuccess(false)
+                    setApprovedDeposit(null)
+                  }}
+                  className="p-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', duration: 0.6 }}
+                  className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4"
+                >
+                  <CheckCircle className="w-10 h-10 text-emerald-400" />
+                </motion.div>
+
+                <div className="text-center">
+                  <p className="text-emerald-400 text-2xl font-bold mb-2">
+                    NPR {approvedDeposit.amount.toLocaleString()}
+                  </p>
+                  <p className="text-gray-400 text-sm mb-4">
+                    Successfully added to your wallet
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="flex justify-between items-center text-sm mb-2">
+                    <span className="text-gray-400">New Balance:</span>
+                    <span className="text-emerald-400 font-bold">
+                      NPR {approvedDeposit.newBalance.toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-emerald-400 text-xs">
+                    Your deposit has been approved and funds are now available for trading and withdrawals.
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setShowDepositSuccess(false)
+                      setApprovedDeposit(null)
+                    }}
+                    className="flex-1 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-colors"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDepositSuccess(false)
+                      setApprovedDeposit(null)
+                      setActiveModal('trade')
+                    }}
+                    className="flex-1 px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-500/90 text-white font-medium transition-colors"
+                  >
+                    Start Trading
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>

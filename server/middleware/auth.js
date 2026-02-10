@@ -1,13 +1,15 @@
 const { createClient } = require('@supabase/supabase-js');
+const jwt = require('jsonwebtoken');
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment variables');
+let supabase = null;
+if (supabaseUrl && supabaseServiceKey) {
+    supabase = createClient(supabaseUrl, supabaseServiceKey);
+} else {
+    console.log('Using memory-db auth mode');
 }
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const authenticateToken = async (req, res, next) => {
     try {
@@ -18,7 +20,24 @@ const authenticateToken = async (req, res, next) => {
             return res.status(401).json({ message: 'Access token required' });
         }
 
-        // Verify Supabase JWT
+        if (!supabase) {
+            // Memory-db mode: simple JWT verification
+            try {
+                const decoded = jwt.verify(token, 'your-secret-key');
+                req.user = {
+                    id: decoded.id,
+                    email: decoded.email,
+                    role: decoded.role || 'user',
+                    kyc_status: decoded.kyc_status || 'pending',
+                    withdrawal_blocked: decoded.withdrawal_blocked || false
+                };
+                return next();
+            } catch (error) {
+                return res.status(403).json({ message: 'Invalid token' });
+            }
+        }
+
+        // Supabase mode
         const { data: { user }, error } = await supabase.auth.getUser(token);
 
         if (error || !user) {

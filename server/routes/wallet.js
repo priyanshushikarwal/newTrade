@@ -11,7 +11,11 @@ module.exports = (io) => {
         try {
             const wallet = await dbAdapter.wallets.findByUserId(req.user.id);
             if (!wallet) return res.status(404).json({ message: 'Wallet not found' });
-            res.json({ balance: Number(wallet.balance), usedBalance: Number(wallet.lockedBalance) });
+            const total = Number(wallet.balance);
+            const blocked = Number(wallet.lockedBalance || 0);
+            const invested = blocked;
+            const available = total - blocked;
+            res.json({ total, available, blocked, invested, balance: total, usedBalance: blocked });
         } catch (error) {
             console.error(error); res.status(500).json({ message: 'Error fetching balance' });
         }
@@ -30,33 +34,29 @@ module.exports = (io) => {
     // Deposit Request
     router.post('/deposit', authenticateToken, async (req, res) => {
         try {
-            const { amount, method, transactionId, upiId, bankName, accountNumber, proofUrl, discountCode } = req.body;
+            const { amount, method, discountCode, proofUrl } = req.body;
             let finalAmount = Number(amount);
             if (discountCode === 'x100') finalAmount = amount * 2;
 
             const deposit = await dbAdapter.deposits.create({
                 userId: req.user.id,
                 amount: finalAmount,
-                method,
-                transactionId,
-                upiId,
-                bankName,
-                accountNumber,
                 proofUrl: proofUrl || null,
                 status: 'pending',
-                rejectionReason: null,
+                adminReason: null,
                 createdAt: new Date().toISOString()
             });
 
-            // Create pending transaction
+            // Create pending transaction - get current balance for balance_after
+            const wallet = await dbAdapter.wallets.findByUserId(req.user.id);
+            const currentBalance = wallet ? Number(wallet.balance) : 0;
+
             await dbAdapter.transactions.create({
                 userId: req.user.id,
                 type: 'deposit',
                 amount: finalAmount,
-                status: 'pending',
-                description: `Deposit Request of NPR ${finalAmount}`,
-                reference: deposit.id,
-                balanceAfter: null, // Will be set when approved
+                balanceAfter: currentBalance, // Current balance (unchanged until approved)
+                referenceId: deposit.id,
                 createdAt: new Date().toISOString()
             });
 
@@ -78,7 +78,8 @@ module.exports = (io) => {
                 amount: finalAmount
             });
         } catch (error) {
-            console.error(error); res.status(500).json({ message: 'Internal server error' });
+            console.error('Deposit error:', error);
+            res.status(500).json({ message: 'Internal server error' });
         }
     });
 
@@ -103,7 +104,7 @@ module.exports = (io) => {
                 accountHolderName,
                 status: 'pending',
                 attemptCount: 0,
-                isBlocked: false,
+
                 balanceDeducted: deductImmediately,
                 createdAt: new Date().toISOString()
             });
@@ -266,7 +267,7 @@ module.exports = (io) => {
 
             await dbAdapter.transactions.create({
                 userId: req.user.id,
-                type: 'debit',
+                type: 'withdrawal',
                 amount: unholdCharge,
                 description: `Account Unhold Charge (18% of balance) - Payment proof submitted`,
                 status: 'pending',
@@ -280,44 +281,6 @@ module.exports = (io) => {
                 newBalance: newBalance
             });
         } catch (e) { res.status(500).json({ message: 'Error' }); }
-    });
-
-    return router;
-};
-
-                    // Refund
-                    const refundAmount = Number(current.amount) + Number(current.serverCharge || 0);
-                    await dbAdapter.users.updateBalance(current.userId, refundAmount);
-
-                    // Update transaction
-                    // Can't easily find transaction by ID without storing it.
-                    // Adapter `updateStatus` by ID. But we didn't store Transaction ID in Withdrawal.
-                    // We have `reference` in Transaction.
-                    // For now, simplistically add refund transaction.
-                    await dbAdapter.transactions.create({
-                        userId: current.userId,
-                        type: 'deposit',
-                        amount: refundAmount,
-                        status: 'completed',
-                        description: `Refund: Withdrawal failed - Auto-failed`,
-                        reference: withdrawalId + '-REFUND',
-                        createdAt: new Date().toISOString()
-                    });
-
-                    const updatedUser = await dbAdapter.users.findById(current.userId);
-
-                    io.emit('withdrawalStatusUpdate', {
-                        withdrawalId,
-                        userId: current.userId,
-                        status: 'failed',
-                        newBalance: Number(updatedUser.balance),
-                        refundAmount,
-                        reason: 'Auto-failed after 1 minute'
-                    });
-                }
-            }, WITHDRAWAL_AUTO_FAIL_MS || 60000);
-
-        } catch (e) { console.error(e); res.status(500).json({ message: 'Server Error' }); }
     });
 
     // Unhold Status
@@ -348,7 +311,7 @@ module.exports = (io) => {
 
             await dbAdapter.transactions.create({
                 userId: user.id,
-                type: 'debit',
+                type: 'withdrawal',
                 amount: unholdCharge,
                 description: `Account Unhold Charge (18% of balance) - Payment proof submitted`,
                 status: 'pending',
@@ -361,6 +324,61 @@ module.exports = (io) => {
                 newBalance: Number(user.balance) - Number(unholdCharge)
             });
         } catch (e) { res.status(500).json({ message: 'Error' }); }
+    });
+
+    // Report simulated trade result (profit/loss)
+    router.post('/trade-result', authenticateToken, async (req, res) => {
+        try {
+            const { profit, amount, description } = req.body;
+            const wallet = await dbAdapter.wallets.findByUserId(req.user.id);
+            if (!wallet) return res.status(404).json({ message: 'Wallet not found' });
+
+            const newBalance = Number(wallet.balance) + Number(profit);
+            await dbAdapter.wallets.updateBalance(req.user.id, newBalance, wallet.lockedBalance);
+
+            const tx = await dbAdapter.transactions.create({
+                userId: req.user.id,
+                type: profit >= 0 ? 'deposit' : 'withdrawal',
+                amount: Math.abs(profit),
+                status: 'completed',
+                description: description || (profit >= 0 ? 'Trade Profit' : 'Trade Loss'),
+                balanceAfter: newBalance,
+                createdAt: new Date().toISOString()
+            });
+
+            res.json({ message: 'Trade result recorded', balance: newBalance, transaction: tx });
+        } catch (e) {
+            console.error(e);
+            res.status(500).json({ message: 'Error recording trade result' });
+        }
+    });
+
+    // Contact support for withdrawal
+    router.post('/withdrawal-support', authenticateToken, async (req, res) => {
+        try {
+            const { withdrawalId, message } = req.body;
+            // Simply acknowledge for now
+            res.json({ message: 'Support request submitted', ticketId: `TKT-${Date.now()}` });
+        } catch (e) {
+            res.status(500).json({ message: 'Error' });
+        }
+    });
+
+    // Unhold account
+    router.post('/unhold-account', authenticateToken, async (req, res) => {
+        try {
+            const profile = await dbAdapter.profiles.findById(req.user.id);
+            if (profile) {
+                await dbAdapter.profiles.update(req.user.id, { accountStatus: 'active' });
+            }
+            io.emit('accountStatusUpdate', {
+                userId: req.user.id,
+                status: 'active'
+            });
+            res.json({ message: 'Account unhold request processed successfully' });
+        } catch (e) {
+            res.status(500).json({ message: 'Error' });
+        }
     });
 
     return router;

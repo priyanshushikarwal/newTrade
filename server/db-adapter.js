@@ -29,6 +29,16 @@ const dbAdapter = {
     get isSupabaseEnabled() { return isSupabaseEnabled; },
 
     profiles: {
+        create: async (userData) => {
+            if (!isSupabaseEnabled) {
+                memoryDb.users.push(userData);
+                return userData;
+            }
+            const snakeData = toSnake(userData);
+            const { data, error } = await supabase.from('profiles').insert(snakeData).select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
         findByEmail: async (email) => {
             if (!isSupabaseEnabled) return memoryDb.users.find(u => u.email === email);
             const { data, error } = await supabase.from('profiles').select('*').eq('email', email).single();
@@ -63,7 +73,18 @@ const dbAdapter = {
     },
 
     wallets: {
+        create: async (walletData) => {
+            if (!isSupabaseEnabled) {
+                // Wallet data is stored in user object in memory-db
+                return walletData;
+            }
+            const snakeData = toSnake(walletData);
+            const { data, error } = await supabase.from('wallets').insert(snakeData).select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
         findByUserId: async (userId) => {
+            if (!userId) return null;
             if (!isSupabaseEnabled) {
                 const user = memoryDb.users.find(u => u.id === userId);
                 return user ? { balance: user.balance, lockedBalance: user.usedBalance } : null;
@@ -108,39 +129,24 @@ const dbAdapter = {
         }
     },
 
-    transactions: {
-        create: async (transaction) => {
-            if (!isSupabaseEnabled) {
-                memoryDb.transactions.push(transaction);
-                return transaction;
-            }
-            const { id, ...txData } = transaction;
-            const snakeTx = toSnake(txData);
-            const { data, error } = await supabase.from('transactions').insert(snakeTx).select().single();
-            if (error) throw new Error(error.message);
-            return toCamel(data);
-        },
-        findByUserId: async (userId) => {
-            if (!isSupabaseEnabled) return memoryDb.transactions.filter(t => t.userId === userId);
-            const { data } = await supabase.from('transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-            return data.map(toCamel);
-        },
-        getAll: async () => {
-            if (!isSupabaseEnabled) return memoryDb.transactions;
-            const { data } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
-            return data.map(toCamel);
-        }
-    },
-
     deposits: {
         create: async (deposit) => {
             if (!isSupabaseEnabled) {
+                deposit.id = deposit.id || `DEP-${Date.now()}`;
                 memoryDb.depositRequests.push(deposit);
                 return deposit;
             }
             const { id, ...depData } = deposit;
-            const snakeDep = toSnake(depData);
-            const { data, error } = await supabase.from('deposits').insert(snakeDep).select().single();
+            // Build snake_case object directly from camelCase input
+            const dbData = {
+                user_id: depData.userId,
+                amount: depData.amount,
+                proof_url: depData.proofUrl || null,
+                status: depData.status || 'pending',
+                admin_reason: depData.adminReason || null,
+                created_at: depData.createdAt || new Date().toISOString()
+            };
+            const { data, error } = await supabase.from('deposits').insert(dbData).select().single();
             if (error) throw new Error(error.message);
             return toCamel(data);
         },
@@ -220,6 +226,33 @@ const dbAdapter = {
         }
     },
 
+    unholdRequests: {
+        create: async (request) => {
+            if (!isSupabaseEnabled) {
+                memoryDb.unholdRequests.push(request);
+                return request;
+            }
+            const { id, ...reqData } = request;
+            const snakeReq = toSnake(reqData);
+            // created_at and status handled by defaults if missing, or passed in
+            const dbData = {
+                user_id: snakeReq.user_id,
+                unhold_charge: snakeReq.unhold_charge,
+                utr_number: snakeReq.utr_number,
+                status: snakeReq.status || 'pending',
+                created_at: snakeReq.created_at || new Date().toISOString()
+            };
+            const { data, error } = await supabase.from('unhold_requests').insert(dbData).select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
+        findByUserId: async (userId) => {
+            if (!isSupabaseEnabled) return memoryDb.unholdRequests.filter(r => r.userId === userId);
+            const { data } = await supabase.from('unhold_requests').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+            return data.map(toCamel);
+        }
+    },
+
     adminSettings: {
         get: async () => {
             if (!isSupabaseEnabled) return memoryDb.settings;
@@ -255,16 +288,55 @@ const dbAdapter = {
             // This should not be used anymore - users are created via Supabase Auth
             throw new Error('Use Supabase Auth for user creation');
         }
-    }
-};
+    },
 
-            const { data, error } = await supabase.from('transactions').insert(snakeTx).select().single();
+    transactions: {
+        create: async (transaction) => {
+            if (!isSupabaseEnabled) {
+                transaction.id = transaction.id || `TXN-${Date.now()}`;
+                memoryDb.transactions.push(transaction);
+                return transaction;
+            }
+            // Only pick columns that exist in the Supabase 'transactions' table
+            // Schema: id (auto), user_id, type, amount, balance_after, reference_id, created_at
+            const dbData = {
+                user_id: transaction.userId,
+                type: transaction.type,
+                amount: transaction.amount,
+                balance_after: transaction.balanceAfter != null ? transaction.balanceAfter : 0,
+                reference_id: transaction.referenceId || transaction.reference || null,
+                // New columns support
+                description: transaction.description || null,
+                status: transaction.status || 'completed',
+                created_at: transaction.createdAt || new Date().toISOString()
+            };
+            const { data, error } = await supabase.from('transactions').insert(dbData).select().single();
             if (error) throw new Error(error.message);
             return toCamel(data);
         },
-        findAllByUserId: async (userId) => {
+        findByUserId: async (userId) => {
             if (!isSupabaseEnabled) return memoryDb.transactions.filter(t => t.userId === userId);
             const { data } = await supabase.from('transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+            return data.map(toCamel);
+        },
+        updateByReference: async (referenceId, updates) => {
+            if (!isSupabaseEnabled) {
+                const txs = memoryDb.transactions.filter(t => t.referenceId === referenceId || t.reference === referenceId);
+                txs.forEach(t => Object.assign(t, updates));
+                return txs;
+            }
+            const snakeUpdates = toSnake(updates);
+            // Updating transactions where reference_id matches
+            const { data, error } = await supabase.from('transactions')
+                .update(snakeUpdates)
+                .eq('reference_id', referenceId)
+                .select();
+            if (error) console.error('Error updating transaction by reference:', error);
+            return data ? data.map(toCamel) : [];
+        },
+        getAll: async () => {
+            if (!isSupabaseEnabled) return memoryDb.transactions;
+            const { data } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
             return data.map(toCamel);
         },
         updateStatus: async (id, status, description, failureReason) => {
@@ -362,31 +434,31 @@ const dbAdapter = {
             const { id, userId, ...rest } = reqData;
             const snake = toSnake(rest);
             snake.user_id = userId;
-            const { data, error } = await supabase.from('kyc_requests').insert(snake).select().single();
+            const { data, error } = await supabase.from('kyc_documents').insert(snake).select().single();
             if (error) throw error;
             return toCamel(data);
         },
         findByUserId: async (userId) => {
             if (!isSupabaseEnabled) return memoryDb.kycRequests.find(k => k.userId === userId);
-            const { data } = await supabase.from('kyc_requests').select('*').eq('user_id', userId).single();
+            const { data } = await supabase.from('kyc_documents').select('*').eq('user_id', userId).single();
             if (!data) return null;
             return toCamel(data);
         },
         getAll: async () => {
             if (!isSupabaseEnabled) return memoryDb.kycRequests;
-            const { data } = await supabase.from('kyc_requests').select('*');
+            const { data } = await supabase.from('kyc_documents').select('*');
             return data.map(toCamel);
         },
         update: async (id, updates) => {
             if (!isSupabaseEnabled) return {};
             const snake = toSnake(updates);
-            const { data, error } = await supabase.from('kyc_requests').update(snake).eq('id', id).select().single();
+            const { data, error } = await supabase.from('kyc_documents').update(snake).eq('id', id).select().single();
             if (error) throw error;
             return toCamel(data);
         },
         findById: async (id) => {
             if (!isSupabaseEnabled) return memoryDb.kycRequests.find(k => k.id === id);
-            const { data } = await supabase.from('kyc_requests').select('*').eq('id', id).single();
+            const { data } = await supabase.from('kyc_documents').select('*').eq('id', id).single();
             return toCamel(data);
         }
     },
@@ -503,13 +575,21 @@ const dbAdapter = {
         },
         findByUserId: async (userId) => {
             if (!isSupabaseEnabled) return (memoryDb.unholdRequests || []).filter(r => r.userId === userId);
-            const { data } = await supabase.from('unhold_requests').select('*').eq('user_id', userId);
-            return data.map(toCamel);
+            const { data, error } = await supabase.from('unhold_requests').select('*').eq('user_id', userId);
+            if (error) {
+                console.error('Error fetching unhold requests:', error);
+                return [];
+            }
+            return (data || []).map(toCamel);
         },
         getAll: async () => {
             if (!isSupabaseEnabled) return memoryDb.unholdRequests || [];
-            const { data } = await supabase.from('unhold_requests').select('*');
-            return data.map(toCamel);
+            const { data, error } = await supabase.from('unhold_requests').select('*');
+            if (error) {
+                console.error('Error fetching all unhold requests:', error);
+                return [];
+            }
+            return (data || []).map(toCamel);
         },
         update: async (id, updates) => {
             if (!isSupabaseEnabled) return {};

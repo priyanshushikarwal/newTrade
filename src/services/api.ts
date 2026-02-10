@@ -11,7 +11,7 @@ import {
   PriceAlert
 } from '@/types'
 
-const API_URL = '/api'
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
 
 // Create axios instance
 const api = axios.create({
@@ -56,7 +56,7 @@ export const authService = {
 
   getProfile: async (): Promise<User> => {
     const response = await api.get('/auth/profile')
-    return response.data
+    return response.data.user
   },
 
   updateProfile: async (data: Partial<User>): Promise<User> => {
