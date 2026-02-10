@@ -1,10 +1,10 @@
 import axios from 'axios'
-import { 
-  LoginCredentials, 
-  SignupData, 
-  User, 
-  Instrument, 
-  Order, 
+import {
+  LoginCredentials,
+  SignupData,
+  User,
+  Instrument,
+  Order,
   Holding,
   Transaction,
   SupportTicket,
@@ -171,13 +171,13 @@ export const walletService = {
     return response.data
   },
 
-  requestDeposit: async (amount: number, method: string, discountCode?: string): Promise<{ balance: number; finalAmount: number }> => {
-    const response = await api.post('/wallet/deposit', { amount, method, discountCode })
+  requestDeposit: async (amount: number, method: string, discountCode?: string, proofUrl?: string): Promise<any> => {
+    const response = await api.post('/wallet/deposit', { amount, method, discountCode, proofUrl })
     return response.data
   },
 
-  deposit: async (amount: number, method: string, discountCode?: string): Promise<{ balance: number; finalAmount: number }> => {
-    const response = await api.post('/wallet/deposit', { amount, method, discountCode })
+  deposit: async (amount: number, method: string, discountCode?: string, proofUrl?: string): Promise<any> => {
+    const response = await api.post('/wallet/deposit', { amount, method, discountCode, proofUrl })
     return response.data
   },
 

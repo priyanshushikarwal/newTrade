@@ -20,6 +20,7 @@ import {
   X
 } from 'lucide-react'
 import { adminService } from '@/services/api'
+import { wsService } from '@/services/websocket'
 import toast from 'react-hot-toast'
 
 interface Deposit {
@@ -65,6 +66,23 @@ const AdminDepositsPage = () => {
 
   useEffect(() => {
     fetchDeposits()
+  }, [])
+
+  // Listen for new deposit requests via WebSocket
+  useEffect(() => {
+    const socket = (wsService as any).socket
+    if (socket) {
+      const handleDepositCreated = () => {
+        console.log('New deposit created, refreshing list')
+        fetchDeposits()
+        toast.success('New deposit request received!')
+      }
+      socket.on('depositCreated', handleDepositCreated)
+
+      return () => {
+        socket.off('depositCreated', handleDepositCreated)
+      }
+    }
   }, [])
 
   const getStatusBadge = (status: string) => {
@@ -179,7 +197,7 @@ const AdminDepositsPage = () => {
 
   const filteredDeposits = deposits.filter(deposit => {
     const matchesStatus = statusFilter === 'all' || deposit.status === statusFilter
-    const matchesSearch = searchQuery === '' || 
+    const matchesSearch = searchQuery === '' ||
       deposit.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       deposit.userId.toLowerCase().includes(searchQuery.toLowerCase())
     return matchesStatus && matchesSearch
@@ -215,7 +233,7 @@ const AdminDepositsPage = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={fetchDeposits}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-colors"
           >
@@ -323,11 +341,10 @@ const AdminDepositsPage = () => {
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium capitalize transition-colors ${
-                  statusFilter === status
+                className={`px-4 py-2 rounded-xl text-sm font-medium capitalize transition-colors ${statusFilter === status
                     ? 'bg-purple-500 text-white'
                     : 'bg-white/5 text-gray-400 hover:text-white'
-                }`}
+                  }`}
               >
                 {status}
               </button>
@@ -348,8 +365,8 @@ const AdminDepositsPage = () => {
             <ArrowDownCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <p className="text-white font-medium mb-2">No deposits found</p>
             <p className="text-gray-400 text-sm">
-              {statusFilter === 'pending' 
-                ? 'No pending deposit requests' 
+              {statusFilter === 'pending'
+                ? 'No pending deposit requests'
                 : 'No deposits match your filters'}
             </p>
           </div>
@@ -374,7 +391,7 @@ const AdminDepositsPage = () => {
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <span className="text-white font-mono text-sm">{deposit.id}</span>
-                          <button 
+                          <button
                             onClick={() => copyToClipboard(deposit.id)}
                             className="text-gray-400 hover:text-white transition-colors"
                           >
@@ -500,6 +517,16 @@ const AdminDepositsPage = () => {
                     NPR {selectedDeposit.amount.toLocaleString()}
                   </p>
                 </div>
+
+                {selectedDeposit.proofUrl && (
+                  <div className="rounded-xl overflow-hidden border border-white/10 max-h-[200px]">
+                    <img
+                      src={selectedDeposit.proofUrl}
+                      alt="Payment Proof"
+                      className="w-full h-full object-contain bg-black/50"
+                    />
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
@@ -661,6 +688,19 @@ const AdminDepositsPage = () => {
                   <p className="text-gray-400 text-sm mb-1">Amount</p>
                   <p className="text-2xl font-bold text-emerald-400">NPR {selectedDeposit.amount.toLocaleString()}</p>
                 </div>
+
+                {selectedDeposit.proofUrl && (
+                  <div>
+                    <p className="text-gray-400 text-sm mb-2">Payment Proof</p>
+                    <div className="rounded-xl overflow-hidden border border-white/10 bg-black/50">
+                      <img
+                        src={selectedDeposit.proofUrl}
+                        alt="Payment Proof"
+                        className="w-full object-contain max-h-[300px]"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-3">
                   <div className="flex justify-between">

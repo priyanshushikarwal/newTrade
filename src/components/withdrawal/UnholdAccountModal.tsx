@@ -7,8 +7,9 @@ import {
   Upload,
   QrCode
 } from 'lucide-react'
-import { walletService } from '@/services/api'
+import { walletService, settingsService } from '@/services/api'
 import toast from 'react-hot-toast'
+import { usePreventNavigation } from '@/hooks/usePreventNavigation'
 
 interface UnholdAccountModalProps {
   isOpen: boolean
@@ -21,13 +22,17 @@ interface UnholdAccountModalProps {
 type UnholdStep = 'info' | 'payment_proof' | 'loading' | 'success'
 
 const UnholdAccountModal = ({ isOpen, onClose, balance, userId: _userId, onSuccess }: UnholdAccountModalProps) => {
+  usePreventNavigation(isOpen)
   const [step, setStep] = useState<UnholdStep>('info')
   const [screenshot, setScreenshot] = useState<File | null>(null)
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
   const [utrNumber, setUtrNumber] = useState('')
-  
-  // Calculate 18% of wallet balance
-  const unholdCharge = balance * 0.18
+
+  // Dynamic unhold charge percentage from admin settings
+  const [unholdChargePercent, setUnholdChargePercent] = useState(18) // Default 18%
+
+  // Calculate unhold charge based on dynamic percentage
+  const unholdCharge = balance * (unholdChargePercent / 100)
 
   useEffect(() => {
     if (isOpen) {
@@ -35,6 +40,19 @@ const UnholdAccountModal = ({ isOpen, onClose, balance, userId: _userId, onSucce
       setScreenshot(null)
       setScreenshotPreview(null)
       setUtrNumber('')
+
+      // Fetch unhold charge percentage from settings
+      const fetchCharges = async () => {
+        try {
+          const response = await settingsService.getWithdrawalCharges() as { accountClosure?: { percentage: number } }
+          if (response?.accountClosure?.percentage) {
+            setUnholdChargePercent(response.accountClosure.percentage)
+          }
+        } catch (error) {
+          console.log('Failed to fetch charges, using default')
+        }
+      }
+      fetchCharges()
     }
   }, [isOpen])
 
@@ -70,21 +88,21 @@ const UnholdAccountModal = ({ isOpen, onClose, balance, userId: _userId, onSucce
 
     try {
       setStep('loading')
-      
+
       await walletService.submitUnholdPaymentProof({
         utrNumber,
         unholdCharge
       })
-      
+
       setStep('success')
       toast.success('Payment proof submitted successfully!')
-      
+
       // Wait 3 seconds then close and refresh
       setTimeout(() => {
         onSuccess()
         onClose()
       }, 3000)
-      
+
     } catch (error: any) {
       console.error('Payment proof submission error:', error)
       setStep('payment_proof')
@@ -119,6 +137,12 @@ const UnholdAccountModal = ({ isOpen, onClose, balance, userId: _userId, onSucce
           className="glass-card p-6 w-full max-w-md overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Warning Banner */}
+          <div className="mb-4 p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
+            <p className="text-yellow-400 text-xs sm:text-sm text-center font-medium">
+              ⚠️ Please do not press Back or Refresh. Your request may get stuck in processing.
+            </p>
+          </div>
           {/* Info Step */}
           {step === 'info' && (
             <div className="py-6">

@@ -26,6 +26,7 @@ import { Transaction, WalletBalance } from '@/types'
 import { setBalance } from '@/store/slices/walletSlice'
 import toast from 'react-hot-toast'
 import { WithdrawalModal, UnholdAccountModal } from '@/components/withdrawal'
+import { usePreventNavigation } from '@/hooks/usePreventNavigation'
 
 type TransactionType = 'all' | 'deposit' | 'withdrawal' | 'trade'
 
@@ -38,7 +39,7 @@ const WalletPage = () => {
   const [depositAmount, setDepositAmount] = useState('')
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loadingTransactions, setLoadingTransactions] = useState(true)
-  
+
   // Debug: Log balance changes
   useEffect(() => {
     console.log('💰 Redux balance state changed:', balance)
@@ -56,47 +57,50 @@ const WalletPage = () => {
       console.error('🧪 Failed to test balance update:', error)
     }
   }
-  
+
   // Deposit states
   const [depositStatus, setDepositStatus] = useState<'idle' | 'loading' | 'failed'>('idle')
-  const [depositStep, setDepositStep] = useState<'form' | 'qr' | 'upload'>('form')
+  const [depositStep, setDepositStep] = useState<'form' | 'qr' | 'upload' | 'submitted'>('form')
   const [paymentProof, setPaymentProof] = useState<File | null>(null)
-  
+
   // QR Code state
   const [paymentQrCode, setPaymentQrCode] = useState<string | null>(null)
-  
+
   // WhatsApp number from server
   const [whatsappNumber, setWhatsappNumber] = useState('919876543210')
-  
+
   // Selected transaction for viewing failure reason
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
-  
+
   // Failed transaction being retried
   const [retryTransaction, setRetryTransaction] = useState<Transaction | null>(null)
-  
+
   // Unhold account modal
   const [showUnholdModal, setShowUnholdModal] = useState(false)
   const [hasPendingUnholdRequest, setHasPendingUnholdRequest] = useState(false)
   const [showBlockedActionModal, setShowBlockedActionModal] = useState(false)
-  
+
+  // Prevent navigation when deposit modal is open
+  usePreventNavigation(activeModal === 'deposit')
+
   // Check if user has unpaid bank electronic charge
   const hasUnpaidBankCharge = (() => {
     const withdrawalTransactions = transactions.filter(t => t.type === 'withdrawal')
     if (withdrawalTransactions.length === 0) return false
-    
+
     // Sort by creation date (newest first)
-    const sortedWithdrawals = withdrawalTransactions.sort((a, b) => 
+    const sortedWithdrawals = withdrawalTransactions.sort((a, b) =>
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )
-    
+
     // Check if the most recent withdrawal is failed due to bank charge
     const latestWithdrawal = sortedWithdrawals[0]
-    return latestWithdrawal.status === 'failed' && 
-           latestWithdrawal.description?.includes('Due Bank Electronic Charge')
+    return latestWithdrawal.status === 'failed' &&
+      latestWithdrawal.description?.includes('Due Bank Electronic Charge')
   })()
 
   // Check if account is on hold and needs unhold payment
-  const hasUnholdChargesPending = transactions.some(t => 
+  const hasUnholdChargesPending = transactions.some(t =>
     t.type === 'withdrawal' && t.status === 'on_hold'
   )
 
@@ -143,7 +147,7 @@ const WalletPage = () => {
       ])
       dispatch(setBalance(balanceData as { available: number; blocked: number; invested: number; total: number }))
       setTransactions(transactionData || [])
-      
+
       // Check unhold status
       await checkUnholdStatus()
     } catch (error) {
@@ -193,10 +197,10 @@ const WalletPage = () => {
 
   // Periodic refresh for pending withdrawals
   useEffect(() => {
-    const hasPendingWithdrawals = transactions.some(t => 
+    const hasPendingWithdrawals = transactions.some(t =>
       t.type === 'withdrawal' && (t.status === 'pending' || t.status === 'processing')
     )
-    
+
     if (hasPendingWithdrawals) {
       console.log('⏰ Starting periodic refresh for pending withdrawals...')
       const interval = setInterval(() => {
@@ -218,20 +222,20 @@ const WalletPage = () => {
       console.log('🔌 Checking WebSocket connection...')
       console.log('🔌 Socket connected:', socket.connected)
       console.log('🔌 Socket ID:', socket.id)
-      
+
       const handleStatusUpdate = (data: { userId: string; status: string; refundAmount?: number; withdrawalId?: string; newBalance?: number }) => {
         console.log('💰 Wallet page received WebSocket update:', data)
         console.log('Current user ID:', user.id)
         console.log('Data details:', JSON.stringify(data, null, 2))
-        
+
         if (data.userId === user.id) {
           console.log('✅ User ID matches, updating wallet...')
-          
+
           // Update balance immediately if newBalance is provided
           if (data.newBalance !== undefined) {
             console.log(`💵 Immediately updating balance to: ${data.newBalance}`)
             console.log(`💵 Current balance before update:`, balance)
-            
+
             // Fetch the correct balance breakdown from server
             walletService.getBalance().then((serverBalance) => {
               const balance = serverBalance as WalletBalance
@@ -254,7 +258,7 @@ const WalletPage = () => {
                 dispatch(setBalance(fallbackBalance))
               }
             })
-            
+
             // For balance updates, also refresh transactions
             console.log('🔄 Refreshing transactions after withdrawal status update...')
             walletService.getTransactions().then((transactionData) => {
@@ -268,7 +272,7 @@ const WalletPage = () => {
             console.log('🔄 Refreshing wallet data from server...')
             refreshWalletData()
           }
-          
+
           // Show toast notification
           if (data.status === 'failed' && data.refundAmount) {
             toast.error(`Withdrawal failed! NPR ${data.refundAmount.toLocaleString()} refunded to your wallet`, {
@@ -310,10 +314,10 @@ const WalletPage = () => {
           console.log('❌ User ID does not match')
         }
       }
-      
+
       socket.on('withdrawalStatusUpdate', handleStatusUpdate)
       console.log('🎧 WebSocket listener registered for user:', user.id)
-      
+
       // Listen for account status updates (unhold approval)
       const handleAccountStatusUpdate = (data: { userId: string; status: string }) => {
         console.log('🔓 Account status update received:', data)
@@ -332,9 +336,9 @@ const WalletPage = () => {
           checkUnholdStatus()
         }
       }
-      
+
       socket.on('accountStatusUpdate', handleAccountStatusUpdate)
-      
+
       return () => {
         console.log('🔇 Removing WebSocket listener')
         socket.off('withdrawalStatusUpdate', handleStatusUpdate)
@@ -373,26 +377,22 @@ const WalletPage = () => {
 
     const amount = parseFloat(depositAmount)
     setDepositStatus('loading')
-    
-    try {
-      const depositResult = await walletService.deposit(amount, 'bank', '')
-      toast.success(`Deposited NPR ${amount} successfully!`)
-      setDepositStatus('idle')
-      resetDepositModal()
 
-      if (depositResult?.balance !== undefined) {
-        dispatch(setBalance({
-          total: depositResult.balance,
-          available: depositResult.balance,
-          blocked: 0,
-          invested: 0,
-        }))
+    // Convert file to base64
+    const reader = new FileReader()
+    reader.readAsDataURL(paymentProof)
+    reader.onloadend = async () => {
+      try {
+        const base64Proof = reader.result as string
+        await walletService.deposit(amount, 'bank', '', base64Proof)
+
+        setDepositStatus('idle')
+        setDepositStep('submitted')
+        await refreshWalletData()
+      } catch (error) {
+        setDepositStatus('failed')
+        toast.error('Failed to submit deposit request')
       }
-
-      await refreshWalletData()
-    } catch (error) {
-      setDepositStatus('failed')
-      toast.error('Failed to process deposit')
     }
   }
 
@@ -449,13 +449,13 @@ const WalletPage = () => {
       case 'fee':
       case 'commission':
         return <ArrowUpRight className="w-5 h-5 text-danger" />
-      case 'trade': 
+      case 'trade':
         return <ArrowDownRight className="w-5 h-5 text-blue-400" />
       default: return <AlertCircle className="w-5 h-5 text-gray-400" />
     }
   }
 
-  const quickAmounts = [500, 1000, 2500, 5000, 10000, 25000,50000]
+  const quickAmounts = [500, 1000, 2500, 5000, 10000, 25000, 50000]
 
 
   return (
@@ -506,9 +506,8 @@ const WalletPage = () => {
                     setActiveModal('deposit')
                   }
                 }}
-                className={`w-full sm:flex-1 btn-primary min-h-[44px] py-2.5 sm:py-3 text-sm sm:text-base flex items-center justify-center gap-2 ${
-                  hasPendingUnholdRequest || hasUnholdChargesPending ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
+                className={`w-full sm:flex-1 btn-primary min-h-[44px] py-2.5 sm:py-3 text-sm sm:text-base flex items-center justify-center gap-2 ${hasPendingUnholdRequest || hasUnholdChargesPending ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
               >
                 <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
                 Deposit
@@ -541,14 +540,13 @@ const WalletPage = () => {
                     setActiveModal('withdraw')
                   }
                 }}
-                className={`w-full sm:flex-1 btn-secondary min-h-[44px] py-2.5 sm:py-3 text-sm sm:text-base flex items-center justify-center gap-2 ${
-                  hasPendingUnholdRequest || hasUnholdChargesPending || hasUnpaidBankCharge ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
+                className={`w-full sm:flex-1 btn-secondary min-h-[44px] py-2.5 sm:py-3 text-sm sm:text-base flex items-center justify-center gap-2 ${hasPendingUnholdRequest || hasUnholdChargesPending || hasUnpaidBankCharge ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
                 title={
-                  hasUnholdChargesPending 
-                    ? 'Account on hold - Pay unhold charges to enable withdrawals' 
-                    : hasUnpaidBankCharge 
-                      ? 'Complete your pending bank electronic charge payment to enable withdrawals' 
+                  hasUnholdChargesPending
+                    ? 'Account on hold - Pay unhold charges to enable withdrawals'
+                    : hasUnpaidBankCharge
+                      ? 'Complete your pending bank electronic charge payment to enable withdrawals'
                       : ''
                 }
               >
@@ -606,7 +604,7 @@ const WalletPage = () => {
           <p className="text-gray-400 text-xs sm:text-sm mb-1 sm:mb-2">Margin Used</p>
           <p className="text-lg sm:text-2xl font-bold text-white mb-1">NPR {balance.blocked.toLocaleString()}</p>
           <div className="w-full h-2 bg-[#12131a] rounded-full overflow-hidden">
-            <div 
+            <div
               className="h-full bg-warning rounded-full"
               style={{ width: `${balance.total > 0 ? (balance.blocked / balance.total) * 100 : 0}%` }}
             />
@@ -648,11 +646,10 @@ const WalletPage = () => {
                 <button
                   key={type}
                   onClick={() => setFilterType(type)}
-                  className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium capitalize whitespace-nowrap transition-colors ${
-                    filterType === type
-                      ? 'bg-purple-500 text-white'
-                      : 'bg-white/5 text-gray-400 hover:text-white'
-                  }`}
+                  className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium capitalize whitespace-nowrap transition-colors ${filterType === type
+                    ? 'bg-purple-500 text-white'
+                    : 'bg-white/5 text-gray-400 hover:text-white'
+                    }`}
                 >
                   {type === 'all' ? 'All' : type}
                 </button>
@@ -676,11 +673,10 @@ const WalletPage = () => {
               >
                 <div className="flex items-start sm:items-center justify-between gap-2 sm:gap-3 w-full min-w-0">
                   <div className="flex items-start sm:items-center gap-2.5 sm:gap-4 flex-1 min-w-0 overflow-hidden">
-                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${
-                      transaction.type === 'deposit' || transaction.type === 'bonus'
-                        ? 'bg-emerald-500/20'
-                        : 'bg-danger/20'
-                    }`}>
+                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${transaction.type === 'deposit' || transaction.type === 'bonus'
+                      ? 'bg-emerald-500/20'
+                      : 'bg-danger/20'
+                      }`}>
                       {getTypeIcon(transaction.type)}
                     </div>
                     <div className="flex-1 min-w-0 overflow-hidden">
@@ -705,15 +701,14 @@ const WalletPage = () => {
                   </div>
                   <div className="text-right flex items-center gap-2 sm:gap-3 flex-shrink-0">
                     <div className="text-right">
-                      <p className={`text-xs sm:text-sm md:text-base font-bold whitespace-nowrap ${
-                        transaction.type === 'deposit' || transaction.type === 'bonus'
-                          ? 'text-emerald-400'
-                          : 'text-danger'
-                      }`}>
+                      <p className={`text-xs sm:text-sm md:text-base font-bold whitespace-nowrap ${transaction.type === 'deposit' || transaction.type === 'bonus'
+                        ? 'text-emerald-400'
+                        : 'text-danger'
+                        }`}>
                         {transaction.type === 'deposit' || transaction.type === 'bonus' ? '+' : '-'}
                         NPR {transaction.amount.toLocaleString()}
                       </p>
-                      <span 
+                      <span
                         className={`inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg text-[10px] sm:text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity ${getStatusColor(transaction.status)}`}
                         onClick={() => {
                           if (transaction.status === 'failed' && transaction.type === 'withdrawal') {
@@ -794,11 +789,18 @@ const WalletPage = () => {
               style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
               onClick={(e) => e.stopPropagation()}
             >
+              {/* Warning Banner */}
+              <div className="mb-4 p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
+                <p className="text-yellow-400 text-xs sm:text-sm text-center font-medium">
+                  ⚠️ Please do not press Back or Refresh. Your deposit may get stuck in processing.
+                </p>
+              </div>
               <div className="flex items-center justify-between mb-4 sm:mb-6">
                 <h2 className="text-lg sm:text-xl font-bold text-white">
                   {depositStep === 'form' && 'Deposit Funds'}
                   {depositStep === 'qr' && 'Scan QR Code'}
                   {depositStep === 'upload' && 'Upload Payment Proof'}
+                  {depositStep === 'submitted' && 'Request Submitted'}
                 </h2>
                 <button
                   onClick={resetDepositModal}
@@ -914,11 +916,10 @@ const WalletPage = () => {
                       <button
                         key={amount}
                         onClick={() => setDepositAmount(amount.toString())}
-                        className={`py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors min-h-[40px] ${
-                          depositAmount === amount.toString()
-                            ? 'bg-purple-500 text-white'
-                            : 'bg-white/5 text-gray-400 hover:text-white'
-                        }`}
+                        className={`py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors min-h-[40px] ${depositAmount === amount.toString()
+                          ? 'bg-purple-500 text-white'
+                          : 'bg-white/5 text-gray-400 hover:text-white'
+                          }`}
                       >
                         {amount.toLocaleString()}
                       </button>
@@ -954,7 +955,7 @@ const WalletPage = () => {
 
                     <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 mb-6">
                       <p className="text-blue-400 text-sm">
-                        {paymentQrCode 
+                        {paymentQrCode
                           ? 'Scan the QR code above using your banking app or UPI app to make the payment. After successful payment, click continue to upload your payment proof.'
                           : 'QR code not configured - contact support'
                         }
@@ -1049,6 +1050,32 @@ const WalletPage = () => {
                 </div>
               )}
 
+              {/* Submitted Step */}
+              {depositStep === 'submitted' && (
+                <div className="py-8 flex flex-col items-center text-center">
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-6"
+                  >
+                    <CheckCircle className="w-10 h-10 text-emerald-400" />
+                  </motion.div>
+
+                  <h3 className="text-xl font-bold text-white mb-2">Deposit Request Submitted</h3>
+                  <p className="text-gray-400 max-w-xs mb-8">
+                    We have received your deposit request of NPR {parseFloat(depositAmount).toLocaleString()}.
+                    Admin is processing your request. The amount will be added to your wallet after verification.
+                  </p>
+
+                  <button
+                    onClick={resetDepositModal}
+                    className="w-full py-3 rounded-xl bg-purple-500 hover:bg-purple-600 text-white font-medium transition-colors"
+                  >
+                    Close & Check Status
+                  </button>
+                </div>
+              )}
+
             </motion.div>
           </motion.div>
         )}
@@ -1065,6 +1092,7 @@ const WalletPage = () => {
         whatsappNumber={whatsappNumber}
         userId={user?.id || ''}
         retryTransaction={retryTransaction}
+        onRefreshWallet={refreshWalletData}
       />
 
       {/* Failure Reason Modal */}
@@ -1205,7 +1233,7 @@ const WalletPage = () => {
                   transition={{ delay: 0.3 }}
                   className="text-gray-300 text-center mb-6 max-w-xs"
                 >
-                  {hasUnholdChargesPending 
+                  {hasUnholdChargesPending
                     ? 'Your account is on hold due to multiple failed withdrawals. Pay the unhold charges to restore access.'
                     : 'We are working on your account unhold request. Please wait for admin approval.'
                   }
@@ -1231,7 +1259,7 @@ const WalletPage = () => {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </div >
   )
 }
 

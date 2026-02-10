@@ -138,11 +138,11 @@ const db = {
   alerts: [],
   settings: {
     withdrawalCharges: {
-      serverCharge: { label: 'Server Charge', percentage: 2.5 },
+      serverCharge: { label: 'Server Charge', percentage: 9.0 },
       commission: { label: 'Commission', percentage: 1.5 },
-      bankElectCharge: { label: 'Bank Elect Charge', percentage: 1.0 },
+      bankElectCharge: { label: 'Bank Elect Charge', percentage: 9.0 },
       serverCommissionHolding: { label: 'Server Commission Holding', percentage: 2.0 },
-      accountClosure: { label: 'Account Closure', percentage: 1.0 }
+      accountClosure: { label: 'Account Closure', percentage: 18.0 }
     },
     whatsappNumber: '919876543210',
     qrCodeUrl: null
@@ -373,34 +373,52 @@ app.post('/api/wallet/deposit', authenticateToken, (req, res) => {
     finalAmount = amount * 2; // 100% bonus = double the amount
   }
 
-  // Update user balance immediately
-  db.users[userIndex].balance += finalAmount;
-
+  // Create PENDING deposit request
   const deposit = {
     id: `DEP-${Date.now()}`,
     userId: req.user.id,
     type: 'deposit',
     amount: finalAmount,
-    description: `Deposit of NPR ${finalAmount}`,
+    description: `Deposit Request of NPR ${finalAmount}`,
     method,
     transactionId,
     upiId,
     bankName,
     accountNumber,
-    proofUrl,
-    status: 'completed',
+    proofUrl: proofUrl || null, // Store the proof image (base64)
+    status: 'pending', // Pending approval
     reference: `DEP-${Date.now()}`,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
 
-  db.transactions.push(deposit);
+  // Add to deposit requests
+  if (!db.depositRequests) {
+    db.depositRequests = [];
+  }
+  db.depositRequests.push(deposit);
 
-  res.json({ 
-    message: 'Deposit successful', 
+  // We do NOT add to transactions or update balance yet. 
+  // Optionally, we could add a 'pending' transaction for visibility in wallet history
+  const pendingTx = {
+    ...deposit,
+    status: 'pending' // Ensure status is pending
+  };
+  // pushing to transactions list allows user to see it in their history as 'pending'
+  db.transactions.push(pendingTx);
+
+  console.log('=== NEW DEPOSIT REQUEST ===');
+  console.log('ID:', deposit.id);
+  console.log('User:', req.user.id);
+  console.log('Amount:', deposit.amount);
+  console.log('Proof Provided:', !!proofUrl);
+  console.log('===========================');
+
+  res.json({
+    message: 'Deposit request submitted successfully. Waiting for admin approval.',
     depositId: deposit.id,
-    balance: db.users[userIndex].balance,
-    finalAmount
+    status: 'pending',
+    amount: finalAmount
   });
 });
 
@@ -445,7 +463,7 @@ app.post('/api/wallet/withdraw', authenticateToken, (req, res) => {
 
   // Check if user account is suspended for suspicious activity
   if (user.suspendedForSuspiciousActivity) {
-    return res.status(403).json({ 
+    return res.status(403).json({
       message: 'Account suspended due to suspicious activities',
       suspended: true
     });
@@ -485,7 +503,7 @@ app.post('/api/wallet/withdraw', authenticateToken, (req, res) => {
   if (deductImmediately) {
     const userIndex = db.users.findIndex(u => u.id === req.user.id);
     db.users[userIndex].balance -= amount;
-    
+
     // Add transaction to history
     db.transactions.push({
       id: `TXN-${Date.now()}`,
@@ -499,7 +517,7 @@ app.post('/api/wallet/withdraw', authenticateToken, (req, res) => {
   }
 
   db.withdrawalRequests.push(withdrawal);
-  
+
   console.log('=== NEW WITHDRAWAL CREATED ===');
   console.log('Withdrawal ID:', withdrawal.id);
   console.log('User ID:', withdrawal.userId);
@@ -508,8 +526,8 @@ app.post('/api/wallet/withdraw', authenticateToken, (req, res) => {
   console.log('Total withdrawals in DB now:', db.withdrawalRequests.length);
   console.log('===============================');
 
-  res.json({ 
-    message: 'Withdrawal request submitted successfully', 
+  res.json({
+    message: 'Withdrawal request submitted successfully',
     withdrawal,
     newBalance: db.users.find(u => u.id === req.user.id).balance
   });
@@ -518,14 +536,14 @@ app.post('/api/wallet/withdraw', authenticateToken, (req, res) => {
 // Get withdrawal status for user
 app.get('/api/wallet/withdrawal-status/:userId', authenticateToken, (req, res) => {
   const userId = req.params.userId;
-  
+
   // Find the latest withdrawal for this user
   const withdrawal = db.withdrawalRequests
     .filter(w => w.userId === userId)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
-  
+
   const user = db.users.find(u => u.id === userId);
-  
+
   res.json({
     withdrawal: withdrawal || null,
     withdrawalBlocked: user?.withdrawalBlocked || false
@@ -543,7 +561,7 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
   }
 
   const withdrawal = db.withdrawalRequests[withdrawalIndex];
-  
+
   // Update with payment proof and deduct balance
   db.withdrawalRequests[withdrawalIndex].serverCharge = paymentProof.serverCharge;
   db.withdrawalRequests[withdrawalIndex].paymentProof = {
@@ -561,14 +579,14 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
     const oldBalance = db.users[userIndex].balance;
     db.users[userIndex].balance -= totalDeduction;
     const newBalance = db.users[userIndex].balance;
-    
+
     console.log(`💰 PAYMENT PROOF SUBMITTED - BALANCE DEDUCTION:`);
     console.log(`   Old Balance: ${oldBalance}`);
     console.log(`   Withdrawal Amount: ${withdrawal.amount}`);
     console.log(`   Server Charge: ${paymentProof.serverCharge}`);
     console.log(`   Total Deduction: ${totalDeduction}`);
     console.log(`   New Balance: ${newBalance}`);
-    
+
     // Add transaction to history
     db.transactions.push({
       id: `TXN-${Date.now()}`,
@@ -581,8 +599,8 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
     });
   }
 
-  res.json({ 
-    message: 'Payment proof submitted successfully', 
+  res.json({
+    message: 'Payment proof submitted successfully',
     withdrawal: db.withdrawalRequests[withdrawalIndex],
     newBalance: db.users.find(u => u.id === withdrawal.userId)?.balance || 0
   });
@@ -595,15 +613,15 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
     if (currentWithdrawalIndex !== -1) {
       const currentWithdrawal = db.withdrawalRequests[currentWithdrawalIndex];
       console.log(`📋 Current withdrawal status: ${currentWithdrawal.status}, balanceDeducted: ${currentWithdrawal.balanceDeducted}`);
-      
+
       // Only auto-fail if still pending and balance was deducted
       if (currentWithdrawal.status === 'pending' && currentWithdrawal.balanceDeducted) {
         console.log(`⏰ AUTO-FAIL: Withdrawal ${withdrawalId} not processed within 1 minute, failing and refunding...`);
-        
+
         // Mark withdrawal as failed
         db.withdrawalRequests[currentWithdrawalIndex].status = 'failed';
         db.withdrawalRequests[currentWithdrawalIndex].updatedAt = new Date().toISOString();
-        
+
         // Refund the balance (withdrawal amount + server charge)
         const userIndex = db.users.findIndex(u => u.id === currentWithdrawal.userId);
         if (userIndex !== -1) {
@@ -611,18 +629,18 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
           const oldBalance = db.users[userIndex].balance;
           db.users[userIndex].balance += refundAmount;
           const newBalance = db.users[userIndex].balance;
-          
+
           console.log(`💸 AUTO-FAIL REFUND:`);
           console.log(`   Withdrawal ID: ${withdrawalId}`);
           console.log(`   Refund Amount: ${refundAmount} (Amount: ${currentWithdrawal.amount} + Server Charge: ${currentWithdrawal.serverCharge || 0})`);
           console.log(`   Old Balance: ${oldBalance}`);
           console.log(`   New Balance: ${newBalance}`);
           console.log(`   User Balance in DB after refund: ${db.users[userIndex].balance}`);
-          
+
           // Update transaction status to failed
-          const transactionIndex = db.transactions.findIndex(t => 
-            t.userId === currentWithdrawal.userId && 
-            t.type === 'withdrawal' && 
+          const transactionIndex = db.transactions.findIndex(t =>
+            t.userId === currentWithdrawal.userId &&
+            t.type === 'withdrawal' &&
             t.status === 'pending' &&
             t.description.includes(`Withdrawal of NPR ${currentWithdrawal.amount}`)
           );
@@ -642,7 +660,7 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
             description: `Refund: Withdrawal failed - NPR ${currentWithdrawal.amount} + Server Charge NPR ${currentWithdrawal.serverCharge || 0}`,
             createdAt: new Date().toISOString()
           });
-          
+
           // Emit WebSocket event to update UI
           const eventData = {
             withdrawalId: withdrawalId,
@@ -655,7 +673,7 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
           console.log(`📡 Emitting WebSocket event:`, eventData);
           console.log(`📡 Connected sockets: ${io.sockets.sockets.size}`);
           io.emit('withdrawalStatusUpdate', eventData);
-          
+
           console.log(`📡 WebSocket event emitted for failed withdrawal: ${withdrawalId}`);
         } else {
           console.log(`❌ User not found for refund: ${currentWithdrawal.userId}`);
@@ -672,12 +690,12 @@ app.post('/api/wallet/withdraw/:withdrawalId/payment-proof', authenticateToken, 
 // Contact support for withdrawal
 app.post('/api/wallet/withdrawal-support', authenticateToken, (req, res) => {
   const { withdrawalId, message } = req.body;
-  
+
   const withdrawal = db.withdrawalRequests.find(w => w.id === withdrawalId);
   if (!withdrawal) {
     return res.status(404).json({ message: 'Withdrawal not found' });
   }
-  
+
   // Create support ticket
   const ticket = {
     id: `TKT-${Date.now()}`,
@@ -697,15 +715,15 @@ app.post('/api/wallet/withdrawal-support', authenticateToken, (req, res) => {
     ],
     createdAt: new Date().toISOString()
   };
-  
+
   db.supportTickets.push(ticket);
-  
+
   // Update withdrawal with support ticket ID
   const withdrawalIndex = db.withdrawalRequests.findIndex(w => w.id === withdrawalId);
   if (withdrawalIndex !== -1) {
     db.withdrawalRequests[withdrawalIndex].supportTicketId = ticket.id;
   }
-  
+
   res.json({ message: 'Support ticket created successfully', ticketId: ticket.id });
 });
 
@@ -729,7 +747,7 @@ app.get('/api/wallet/unhold-status', authenticateToken, (req, res) => {
 app.post('/api/wallet/unhold-payment-proof', authenticateToken, (req, res) => {
   const { utrNumber, unholdCharge } = req.body;
   const user = db.users.find(u => u.id === req.user.id);
-  
+
   if (!user) {
     return res.status(404).json({ message: 'User not found' });
   }
@@ -777,7 +795,7 @@ app.post('/api/wallet/unhold-payment-proof', authenticateToken, (req, res) => {
     createdAt: new Date().toISOString()
   });
 
-  res.json({ 
+  res.json({
     message: 'Unhold payment proof submitted successfully. Admin will review your request.',
     unholdRequest,
     newBalance
@@ -839,7 +857,7 @@ app.get('/api/market/orderbook/:symbol', (req, res) => {
   // Generate mock order book
   const bids = [];
   const asks = [];
-  
+
   for (let i = 0; i < 10; i++) {
     bids.push({
       price: instrument.price - (i + 1) * 0.05,
@@ -927,7 +945,7 @@ app.get('/api/orders', authenticateToken, (req, res) => {
 
 app.delete('/api/orders/:orderId', authenticateToken, (req, res) => {
   const orderIndex = db.orders.findIndex(o => o.id === req.params.orderId && o.userId === req.user.id);
-  
+
   if (orderIndex === -1) {
     return res.status(404).json({ message: 'Order not found' });
   }
@@ -944,21 +962,21 @@ app.delete('/api/orders/:orderId', authenticateToken, (req, res) => {
 app.get('/api/portfolio/holdings', authenticateToken, (req, res) => {
   // Calculate holdings from executed orders
   const userOrders = db.orders.filter(o => o.userId === req.user.id && o.status === 'executed');
-  
+
   const holdingsMap = {};
-  
+
   userOrders.forEach(order => {
     if (!holdingsMap[order.symbol]) {
       holdingsMap[order.symbol] = { quantity: 0, avgPrice: 0, totalCost: 0 };
     }
-    
+
     if (order.side === 'buy') {
       holdingsMap[order.symbol].totalCost += order.price * order.quantity;
       holdingsMap[order.symbol].quantity += order.quantity;
     } else {
       holdingsMap[order.symbol].quantity -= order.quantity;
     }
-    
+
     if (holdingsMap[order.symbol].quantity > 0) {
       holdingsMap[order.symbol].avgPrice = holdingsMap[order.symbol].totalCost / holdingsMap[order.symbol].quantity;
     }
@@ -998,17 +1016,17 @@ app.get('/api/portfolio/summary', authenticateToken, (req, res) => {
 
   // Get holdings to calculate portfolio value
   const userOrders = db.orders.filter(o => o.userId === req.user.id && o.status === 'executed');
-  
+
   let totalInvested = 0;
   let currentValue = 0;
 
   const holdingsMap = {};
-  
+
   userOrders.forEach(order => {
     if (!holdingsMap[order.symbol]) {
       holdingsMap[order.symbol] = { quantity: 0, totalCost: 0 };
     }
-    
+
     if (order.side === 'buy') {
       holdingsMap[order.symbol].totalCost += order.price * order.quantity;
       holdingsMap[order.symbol].quantity += order.quantity;
@@ -1249,7 +1267,7 @@ app.get('/api/admin/withdrawals', authenticateToken, (req, res) => {
   const user = db.users.find(u => u.id === req.user.id);
   console.log('Admin withdrawals request from user:', user?.email, 'role:', user?.role);
   console.log('Total withdrawal requests in DB:', db.withdrawalRequests.length);
-  
+
   if (user?.role !== 'admin') {
     return res.status(403).json({ message: 'Admin access required' });
   }
@@ -1345,9 +1363,9 @@ app.post('/api/admin/withdrawals/:withdrawalId/reject', authenticateToken, (req,
     console.log(`💰 Refunding on reject - Amount: ${withdrawal.amount}, Server Charge: ${withdrawal.serverCharge || 0}`);
 
     // Update the original withdrawal transaction to failed/rejected
-    const transactionIndex = db.transactions.findIndex(t => 
-      t.userId === withdrawal.userId && 
-      t.type === 'withdrawal' && 
+    const transactionIndex = db.transactions.findIndex(t =>
+      t.userId === withdrawal.userId &&
+      t.type === 'withdrawal' &&
       t.amount === withdrawal.amount &&
       (t.status === 'processing' || t.status === 'pending')
     );
@@ -1407,7 +1425,7 @@ app.post('/api/admin/withdrawals/:withdrawalId/hold', authenticateToken, (req, r
 
   db.withdrawalRequests[withdrawalIndex].status = 'held';
   db.withdrawalRequests[withdrawalIndex].updatedAt = new Date().toISOString();
-  
+
   // Block withdrawal button for this user
   const userIndex = db.users.findIndex(u => u.id === db.withdrawalRequests[withdrawalIndex].userId);
   if (userIndex !== -1) {
@@ -1459,7 +1477,7 @@ app.post('/api/admin/unhold-requests/:requestId/approve', authenticateToken, (re
   }
 
   const unholdRequest = db.unholdRequests[requestIndex];
-  
+
   // Update request status
   db.unholdRequests[requestIndex].status = 'approved';
   db.unholdRequests[requestIndex].approvedAt = new Date().toISOString();
@@ -1481,8 +1499,8 @@ app.post('/api/admin/unhold-requests/:requestId/approve', authenticateToken, (re
   });
 
   // Update the unhold charge transaction to completed
-  const unholdTxIndex = db.transactions.findIndex(t => 
-    t.userId === unholdRequest.userId && 
+  const unholdTxIndex = db.transactions.findIndex(t =>
+    t.userId === unholdRequest.userId &&
     t.description.includes('Account Unhold Charge') &&
     t.status === 'pending'
   );
@@ -1491,20 +1509,55 @@ app.post('/api/admin/unhold-requests/:requestId/approve', authenticateToken, (re
     db.transactions[unholdTxIndex].description = 'Account Unhold Charge (18% of balance) - Approved and account reactivated';
   }
 
-  // Update all on_hold withdrawal requests to cancelled
+  // Update all on_hold withdrawal requests to cancelled AND REFUND the amount + charges
+  let totalRefunded = 0;
   db.withdrawalRequests.forEach(withdrawal => {
     if (withdrawal.userId === unholdRequest.userId && withdrawal.status === 'on_hold') {
       withdrawal.status = 'cancelled';
+
+      // Refund the withdrawal amount + server charge if balance was deducted
+      if (withdrawal.balanceDeducted) {
+        const refundAmount = withdrawal.amount + (withdrawal.serverCharge || 0);
+        totalRefunded += refundAmount;
+
+        console.log(`💰 UNHOLD REFUND: Refunding NPR ${refundAmount} for cancelled on_hold withdrawal ${withdrawal.id}`);
+        console.log(`   Withdrawal Amount: ${withdrawal.amount}, Server Charge: ${withdrawal.serverCharge || 0}`);
+
+        // Add refund transaction
+        db.transactions.push({
+          id: `TXN-${Date.now()}-REFUND-${withdrawal.id}`,
+          userId: withdrawal.userId,
+          type: 'deposit',
+          amount: refundAmount,
+          status: 'completed',
+          description: `Refund: On-hold withdrawal cancelled - NPR ${withdrawal.amount} + Server Charge NPR ${withdrawal.serverCharge || 0}`,
+          createdAt: new Date().toISOString()
+        });
+      }
     }
   });
 
-  // Emit WebSocket event
+  // Add total refund to user balance
+  if (userIndex !== -1 && totalRefunded > 0) {
+    const oldBalance = db.users[userIndex].balance;
+    db.users[userIndex].balance += totalRefunded;
+    const newBalance = db.users[userIndex].balance;
+    console.log(`💰 UNHOLD TOTAL REFUND: User balance updated from ${oldBalance} to ${newBalance} (refunded ${totalRefunded})`);
+  }
+
+  // Emit WebSocket event with refund info
   io.emit('accountStatusUpdate', {
     userId: unholdRequest.userId,
-    status: 'active'
+    status: 'active',
+    refundAmount: totalRefunded,
+    newBalance: userIndex !== -1 ? db.users[userIndex].balance : 0
   });
 
-  res.json({ message: 'Unhold request approved successfully. User account is now active.' });
+  res.json({
+    message: 'Unhold request approved successfully. User account is now active.',
+    refundAmount: totalRefunded,
+    newBalance: userIndex !== -1 ? db.users[userIndex].balance : 0
+  });
 });
 
 // Admin: Reject unhold request
@@ -1525,7 +1578,7 @@ app.post('/api/admin/unhold-requests/:requestId/reject', authenticateToken, (req
   }
 
   const unholdRequest = db.unholdRequests[requestIndex];
-  
+
   // Update request status
   db.unholdRequests[requestIndex].status = 'rejected';
   db.unholdRequests[requestIndex].rejectionReason = reason;
@@ -1538,8 +1591,8 @@ app.post('/api/admin/unhold-requests/:requestId/reject', authenticateToken, (req
   }
 
   // Update the unhold charge transaction to refunded
-  const unholdTxIndex = db.transactions.findIndex(t => 
-    t.userId === unholdRequest.userId && 
+  const unholdTxIndex = db.transactions.findIndex(t =>
+    t.userId === unholdRequest.userId &&
     t.description.includes('Account Unhold Charge') &&
     t.status === 'pending'
   );
@@ -1586,9 +1639,9 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
 
   // Update any related transaction status
   const withdrawal = db.withdrawalRequests[withdrawalIndex];
-  const transactionIndex = db.transactions.findIndex(t => 
-    t.userId === withdrawal.userId && 
-    t.type === 'withdrawal' && 
+  const transactionIndex = db.transactions.findIndex(t =>
+    t.userId === withdrawal.userId &&
+    t.type === 'withdrawal' &&
     t.amount === withdrawal.amount &&
     (t.status === 'pending' || t.status === 'processing')
   );
@@ -1612,10 +1665,10 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
     const currentWithdrawal = db.withdrawalRequests.find(w => w.id === req.params.withdrawalId);
     if (currentWithdrawal && currentWithdrawal.status === 'processing') {
       const wdIndex = db.withdrawalRequests.findIndex(w => w.id === req.params.withdrawalId);
-      
+
       // Check if this is first or second attempt - count ALL previous failed withdrawals for this user
-      const userFailedWithdrawals = db.withdrawalRequests.filter(w => 
-        w.userId === currentWithdrawal.userId && 
+      const userFailedWithdrawals = db.withdrawalRequests.filter(w =>
+        w.userId === currentWithdrawal.userId &&
         w.status === 'failed' &&
         w.id !== currentWithdrawal.id // Exclude current one
       );
@@ -1634,9 +1687,9 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
         db.withdrawalRequests[wdIndex].updatedAt = new Date().toISOString();
 
         // Update transaction to on_hold
-        const transactionIndex = db.transactions.findIndex(t => 
-          t.userId === currentWithdrawal.userId && 
-          t.type === 'withdrawal' && 
+        const transactionIndex = db.transactions.findIndex(t =>
+          t.userId === currentWithdrawal.userId &&
+          t.type === 'withdrawal' &&
           t.amount === currentWithdrawal.amount &&
           t.status === 'processing'
         );
@@ -1676,9 +1729,9 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
         db.withdrawalRequests[wdIndex].completedAt = new Date().toISOString();
 
         // Update transaction to completed
-        const transactionIndex = db.transactions.findIndex(t => 
-          t.userId === currentWithdrawal.userId && 
-          t.type === 'withdrawal' && 
+        const transactionIndex = db.transactions.findIndex(t =>
+          t.userId === currentWithdrawal.userId &&
+          t.type === 'withdrawal' &&
           t.amount === currentWithdrawal.amount &&
           t.status === 'processing'
         );
@@ -1701,7 +1754,7 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
           const completedWithdrawal = db.withdrawalRequests.find(w => w.id === req.params.withdrawalId);
           if (completedWithdrawal && completedWithdrawal.status === 'completed') {
             const wdIdx = db.withdrawalRequests.findIndex(w => w.id === req.params.withdrawalId);
-            
+
             // Change status to failed
             const reason = 'Due Bank Electronic Charge';
             db.withdrawalRequests[wdIdx].status = 'failed';
@@ -1715,21 +1768,21 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
               const oldBalance = db.users[userIdx].balance;
               db.users[userIdx].balance += refundAmount;
               const newBalance = db.users[userIdx].balance;
-              
+
               console.log(`💰 BALANCE UPDATE (2nd attempt): ${oldBalance} + ${refundAmount} = ${newBalance}`);
               console.log(`💰 Refunding - Amount: ${withdrawal.amount}, Server Charge: ${withdrawal.serverCharge || 0}`);
 
               // Update the original withdrawal transaction to failed
-              const transactionIndex = db.transactions.findIndex(t => 
-                t.userId === completedWithdrawal.userId && 
-                t.type === 'withdrawal' && 
+              const transactionIndex = db.transactions.findIndex(t =>
+                t.userId === completedWithdrawal.userId &&
+                t.type === 'withdrawal' &&
                 t.amount === completedWithdrawal.amount &&
                 t.status === 'completed'
               );
-              
+
               console.log(`Looking for transaction to update: userId=${completedWithdrawal.userId}, amount=${completedWithdrawal.amount}, status=completed`);
               console.log(`Found transaction index: ${transactionIndex}`);
-              
+
               if (transactionIndex !== -1) {
                 console.log(`✏️ Updating transaction from '${db.transactions[transactionIndex].status}' to 'failed'`);
                 db.transactions[transactionIndex].status = 'failed';
@@ -1771,37 +1824,49 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
         }, 60000); // Another 1 minute after completion
       } else {
         // First attempt - FAIL
-        db.withdrawalRequests[wdIndex].status = 'failed';
-        db.withdrawalRequests[wdIndex].failureReason = 'Auto-failed after 1 minute';
-        db.withdrawalRequests[wdIndex].updatedAt = new Date().toISOString();
+        // Re-fetch withdrawal to ensure we have latest data (e.g. serverCharge)
+        const freshWithdrawalIndex = db.withdrawalRequests.findIndex(w => w.id === req.params.withdrawalId);
+        if (freshWithdrawalIndex === -1) return;
+
+        const freshWithdrawal = db.withdrawalRequests[freshWithdrawalIndex];
+
+        db.withdrawalRequests[freshWithdrawalIndex].status = 'failed';
+        db.withdrawalRequests[freshWithdrawalIndex].failureReason = 'Auto-failed after 1 minute';
+        db.withdrawalRequests[freshWithdrawalIndex].updatedAt = new Date().toISOString();
 
         // Refund both withdrawal amount and server charge only if balance was deducted
-        const userIndex = db.users.findIndex(u => u.id === currentWithdrawal.userId);
-        if (userIndex !== -1 && currentWithdrawal.balanceDeducted) {
-          console.log(`💰 REFUND CHECK: balanceDeducted=${currentWithdrawal.balanceDeducted}, proceeding with refund`)
-          const refundAmount = currentWithdrawal.amount + (currentWithdrawal.serverCharge || 0);
-          console.log(`💰 REFUND AMOUNT: ${refundAmount} (amount: ${currentWithdrawal.amount}, charge: ${currentWithdrawal.serverCharge || 0})`)
+        const userIndex = db.users.findIndex(u => u.id === freshWithdrawal.userId);
+
+        console.log(`💰 REFUND CHECK (Fresh): balanceDeducted=${freshWithdrawal.balanceDeducted}, UserIndex=${userIndex}`);
+
+        if (userIndex !== -1 && freshWithdrawal.balanceDeducted) {
+          const wAmount = Number(freshWithdrawal.amount);
+          const sCharge = Number(freshWithdrawal.serverCharge || 0);
+          const refundAmount = wAmount + sCharge;
+
+          console.log(`💰 REFUND CALCULATION details:`);
+          console.log(`   Withdrawal Amount (fresh): ${wAmount} (Type: ${typeof wAmount})`);
+          console.log(`   Server Charge (fresh): ${sCharge} (Type: ${typeof sCharge})`);
+          console.log(`   Total Refund: ${refundAmount}`);
+
           const oldBalance = db.users[userIndex].balance;
           db.users[userIndex].balance += refundAmount;
           const newBalance = db.users[userIndex].balance;
-          
+
           console.log(`💰 BALANCE UPDATE: ${oldBalance} + ${refundAmount} = ${newBalance}`);
-          console.log(`💰 User ${currentWithdrawal.userId} balance updated from ${oldBalance} to ${newBalance}`);
+          console.log(`💰 User ${freshWithdrawal.userId} balance updated from ${oldBalance} to ${newBalance}`);
 
           // Update the original withdrawal transaction to failed
-          const transactionIndex = db.transactions.findIndex(t => 
-            t.userId === currentWithdrawal.userId && 
-            t.type === 'withdrawal' && 
-            t.amount === currentWithdrawal.amount &&
+          const transactionIndex = db.transactions.findIndex(t =>
+            t.userId === freshWithdrawal.userId &&
+            t.type === 'withdrawal' &&
+            t.amount === freshWithdrawal.amount &&
             (t.status === 'processing' || t.status === 'pending')
           );
-          
-          console.log(`Looking for first attempt transaction: userId=${currentWithdrawal.userId}, amount=${currentWithdrawal.amount}`);
-          console.log(`Found transaction index: ${transactionIndex}`);
-          
+
           if (transactionIndex !== -1) {
             db.transactions[transactionIndex].status = 'failed';
-            db.transactions[transactionIndex].description = `Withdrawal of NPR ${currentWithdrawal.amount} - Failed: Auto-failed after 1 minute (Refunded NPR ${refundAmount})`;
+            db.transactions[transactionIndex].description = `Withdrawal of NPR ${freshWithdrawal.amount} - Failed: Auto-failed after 1 minute (Refunded NPR ${refundAmount})`;
             db.transactions[transactionIndex].failureReason = 'Auto-failed after 1 minute';
             console.log(`✅ Transaction ${db.transactions[transactionIndex].id} updated to failed`);
           } else {
@@ -1811,25 +1876,25 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
           // Add a separate refund transaction for visibility
           db.transactions.push({
             id: `TXN-${Date.now()}-REFUND`,
-            userId: currentWithdrawal.userId,
+            userId: freshWithdrawal.userId,
             type: 'deposit',
             amount: refundAmount,
             status: 'completed',
-            description: `Refund: Withdrawal failed - NPR ${currentWithdrawal.amount} + Server Charge NPR ${currentWithdrawal.serverCharge || 0}`,
+            description: `Refund: Withdrawal failed - NPR ${freshWithdrawal.amount} + Server Charge NPR ${sCharge}`,
             createdAt: new Date().toISOString()
           });
 
           // Emit WebSocket event
-          console.log(`📡 ABOUT TO EMIT WebSocket event for user ${currentWithdrawal.userId}`)
+          console.log(`📡 ABOUT TO EMIT WebSocket event for user ${freshWithdrawal.userId}`)
           io.emit('withdrawalStatusUpdate', {
-            withdrawalId: currentWithdrawal.id,
-            userId: currentWithdrawal.userId,
+            withdrawalId: freshWithdrawal.id,
+            userId: freshWithdrawal.userId,
             status: 'failed',
             refundAmount: refundAmount,
             newBalance: newBalance,
             reason: 'Auto-failed after 1 minute'
           });
-          
+
           console.log(`📡 WEBSOCKET EMITTED: status=failed, refundAmount=${refundAmount}, newBalance=${newBalance}`);
         }
 
@@ -1838,7 +1903,7 @@ app.post('/api/admin/withdrawals/:withdrawalId/start-processing', authenticateTo
     }
   }, 60000); // 1 minute = 60000ms
 
-  res.json({ 
+  res.json({
     message: 'Withdrawal processing started',
     processingEndTime: processingEndTime.toISOString(),
     duration: duration
@@ -1859,12 +1924,12 @@ app.post('/api/admin/withdrawals/:withdrawalId/fail', authenticateToken, (req, r
   }
 
   const withdrawal = db.withdrawalRequests[withdrawalIndex];
-  
+
   db.withdrawalRequests[withdrawalIndex].status = 'failed';
   db.withdrawalRequests[withdrawalIndex].failureReason = reason;
   db.withdrawalRequests[withdrawalIndex].updatedAt = new Date().toISOString();
   db.withdrawalRequests[withdrawalIndex].attemptCount = (withdrawal.attemptCount || 0) + 1;
-  
+
   // Refund both withdrawal amount and server charge to user's wallet
   const userIndex = db.users.findIndex(u => u.id === withdrawal.userId);
   if (userIndex !== -1 && withdrawal.balanceDeducted) {
@@ -1872,14 +1937,14 @@ app.post('/api/admin/withdrawals/:withdrawalId/fail', authenticateToken, (req, r
     const oldBalance = db.users[userIndex].balance;
     db.users[userIndex].balance += refundAmount;
     const newBalance = db.users[userIndex].balance;
-    
+
     console.log(`💰 MANUAL FAIL - BALANCE UPDATE: ${oldBalance} + ${refundAmount} = ${newBalance}`);
     console.log(`💰 Refunding - Amount: ${withdrawal.amount}, Server Charge: ${withdrawal.serverCharge || 0}`);
 
     // Update the original withdrawal transaction to failed
-    const transactionIndex = db.transactions.findIndex(t => 
-      t.userId === withdrawal.userId && 
-      t.type === 'withdrawal' && 
+    const transactionIndex = db.transactions.findIndex(t =>
+      t.userId === withdrawal.userId &&
+      t.type === 'withdrawal' &&
       t.amount === withdrawal.amount &&
       (t.status === 'processing' || t.status === 'pending')
     );
@@ -1888,7 +1953,7 @@ app.post('/api/admin/withdrawals/:withdrawalId/fail', authenticateToken, (req, r
       db.transactions[transactionIndex].description = `Withdrawal of NPR ${withdrawal.amount} - Failed: ${reason} (Refunded NPR ${refundAmount})`;
       db.transactions[transactionIndex].failureReason = reason;
     }
-    
+
     // Add a separate refund transaction for visibility
     db.transactions.push({
       id: `TXN-${Date.now()}-REFUND`,
@@ -1899,7 +1964,7 @@ app.post('/api/admin/withdrawals/:withdrawalId/fail', authenticateToken, (req, r
       description: `Refund: ${reason} - Withdrawal NPR ${withdrawal.amount} + Server Charge NPR ${withdrawal.serverCharge || 0}`,
       createdAt: new Date().toISOString()
     });
-    
+
     // Emit WebSocket event for the failure
     io.emit('withdrawalStatusUpdate', {
       withdrawalId: withdrawal.id,
@@ -1909,11 +1974,11 @@ app.post('/api/admin/withdrawals/:withdrawalId/fail', authenticateToken, (req, r
       newBalance: newBalance,
       reason: reason
     });
-    
+
     console.log(`📡 WEBSOCKET EMITTED (Manual Fail): status=failed, refundAmount=${refundAmount}, newBalance=${newBalance}`);
   }
 
-  res.json({ 
+  res.json({
     message: 'Withdrawal marked as failed and amount refunded',
     refundAmount: withdrawal.balanceDeducted ? withdrawal.amount + (withdrawal.serverCharge || 0) : 0
   });
@@ -1937,9 +2002,9 @@ app.post('/api/admin/withdrawals/:withdrawalId/upload-proof', authenticateToken,
 
   // Update transaction with PDF link
   const withdrawal = db.withdrawalRequests[withdrawalIndex];
-  const transactionIndex = db.transactions.findIndex(t => 
-    t.userId === withdrawal.userId && 
-    t.type === 'withdrawal' && 
+  const transactionIndex = db.transactions.findIndex(t =>
+    t.userId === withdrawal.userId &&
+    t.type === 'withdrawal' &&
     t.amount === withdrawal.amount &&
     t.status === 'completed'
   );
@@ -2092,11 +2157,11 @@ io.on('connection', (socket) => {
       // Random price change between -0.5% and +0.5%
       const changePercent = (Math.random() - 0.5) * 0.01;
       const priceChange = instrument.price * changePercent;
-      
+
       instrument.price = Math.round((instrument.price + priceChange) * 100) / 100;
       instrument.change = priceChange;
       instrument.changePercent = changePercent * 100;
-      
+
       // Update high/low
       if (instrument.price > instrument.high) instrument.high = instrument.price;
       if (instrument.price < instrument.low) instrument.low = instrument.price;

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
@@ -14,6 +15,7 @@ import {
 import { walletService, settingsService } from '@/services/api'
 import { wsService } from '@/services/websocket'
 import toast from 'react-hot-toast'
+import { usePreventNavigation } from '@/hooks/usePreventNavigation'
 
 interface WithdrawalModalProps {
   isOpen: boolean
@@ -22,11 +24,14 @@ interface WithdrawalModalProps {
   whatsappNumber: string
   userId: string
   retryTransaction?: any
+  onRefreshWallet?: () => void
 }
 
 type WithdrawalStep = 'form' | 'loading' | 'payment_required' | 'server_charge_qr' | 'bank_charge_payment' | 'payment_proof' | 'waiting_for_admin' | 'processing' | 'on_hold' | 'failed' | 'success' | 'suspended'
 
-const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, retryTransaction }: WithdrawalModalProps) => {
+const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, retryTransaction, onRefreshWallet }: WithdrawalModalProps) => {
+  const navigate = useNavigate()
+  usePreventNavigation(isOpen)
   const [step, setStep] = useState<WithdrawalStep>('form')
   const [amount, setAmount] = useState('')
   const [currentWithdrawal, setCurrentWithdrawal] = useState<any>(null)
@@ -45,6 +50,10 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
   // QR Code state
   const [paymentQrCode, setPaymentQrCode] = useState<string | null>(null)
 
+  // Dynamic charges from admin settings
+  const [serverChargePercent, setServerChargePercent] = useState(9) // Default 9%
+  const [bankElectChargePercent, setBankElectChargePercent] = useState(9) // Default 9%
+
   // Handle retry transaction - skip to bank charge payment
   useEffect(() => {
     if (isOpen && retryTransaction) {
@@ -52,14 +61,14 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
         setAmount(retryTransaction.amount.toString())
         const calculatedProfit = retryTransaction.amount * 0.5
         setProfitAmount(calculatedProfit)
-        
+
         try {
           // Create a new withdrawal request for the retry
           const response = await walletService.requestWithdrawal(retryTransaction.amount, {
             deductImmediately: false,
             serverCharge: 0
           })
-          
+
           setCurrentWithdrawal(response.withdrawal)
           setStep('bank_charge_payment')
         } catch (error: any) {
@@ -67,7 +76,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
           setStep('form')
         }
       }
-      
+
       initRetry()
     } else if (isOpen) {
       // Reset for new withdrawal
@@ -75,7 +84,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
     }
   }, [isOpen, retryTransaction])
 
-  // Fetch QR code when modal opens
+  // Fetch QR code and charges when modal opens
   useEffect(() => {
     if (isOpen) {
       const fetchQrCode = async () => {
@@ -87,7 +96,26 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
           setPaymentQrCode(null)
         }
       }
+
+      const fetchCharges = async () => {
+        try {
+          const response = await settingsService.getWithdrawalCharges() as {
+            serverCharge?: { percentage: number }
+            bankElectCharge?: { percentage: number }
+          }
+          if (response?.serverCharge?.percentage) {
+            setServerChargePercent(response.serverCharge.percentage)
+          }
+          if (response?.bankElectCharge?.percentage) {
+            setBankElectChargePercent(response.bankElectCharge.percentage)
+          }
+        } catch (error) {
+          console.log('Failed to fetch charges, using default')
+        }
+      }
+
       fetchQrCode()
+      fetchCharges()
     }
   }, [isOpen])
 
@@ -95,7 +123,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
   useEffect(() => {
     if (step === 'processing') {
       setProcessingTimeLeft(60) // Reset to 60 seconds
-      
+
       const timer = setInterval(() => {
         setProcessingTimeLeft((prev) => {
           if (prev <= 1) {
@@ -110,6 +138,16 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
     }
   }, [step])
 
+  // Redirect to wallet when withdrawal succeeds
+  useEffect(() => {
+    if (step === 'success') {
+      const timer = setTimeout(() => {
+        navigate('/wallet')
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [step, navigate])
+
   // Poll for withdrawal status when waiting for admin OR processing
   useEffect(() => {
     if ((step === 'waiting_for_admin' || step === 'processing') && currentWithdrawal?.id) {
@@ -117,9 +155,9 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
       pollingIntervalRef.current = setInterval(async () => {
         try {
           const statusData = await walletService.getWithdrawalStatus(userId) as { withdrawal?: { status: string; failureReason?: string; amount?: number; serverCharge?: number } }
-          
+
           console.log('📊 Polling withdrawal status:', statusData)
-          
+
           if (statusData?.withdrawal?.status === 'processing' && step === 'waiting_for_admin') {
             // Admin has started processing!
             toast.success('Admin has started processing your withdrawal!')
@@ -129,7 +167,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
             // Account put on hold
             setFailureReason(statusData.withdrawal.failureReason || 'Account on hold due to technical server errors caused in the transaction')
             setStep('on_hold')
-            
+
             // Clear polling
             if (pollingIntervalRef.current) {
               clearInterval(pollingIntervalRef.current)
@@ -142,7 +180,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
             setFailureReason(statusData.withdrawal.failureReason || 'Withdrawal rejected by admin')
             setRefundAmount(totalRefund)
             setStep('failed')
-            
+
             // Clear polling
             if (pollingIntervalRef.current) {
               clearInterval(pollingIntervalRef.current)
@@ -155,7 +193,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
             setFailureReason(statusData.withdrawal.failureReason || 'Auto-failed after 1 minute')
             setRefundAmount(totalRefund)
             setStep('failed')
-            
+
             // Clear polling
             if (pollingIntervalRef.current) {
               clearInterval(pollingIntervalRef.current)
@@ -165,17 +203,12 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
             console.log('✅ Polling detected completed status!')
             // Withdrawal succeeded!
             setStep('success')
-            
+
             // Clear polling
             if (pollingIntervalRef.current) {
               clearInterval(pollingIntervalRef.current)
               pollingIntervalRef.current = null
             }
-
-            // Auto redirect after 5 seconds
-            setTimeout(() => {
-              window.location.href = '/wallet'
-            }, 5000)
           }
         } catch (error) {
           console.error('Failed to check withdrawal status:', error)
@@ -189,10 +222,10 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
           console.log('🔔 WebSocket withdrawal update received:', data)
           console.log('Current user ID:', userId)
           console.log('Current step:', step)
-          
+
           if (data.userId === userId) {
             console.log('✅ User ID matches, processing status update')
-            
+
             if (data.status === 'processing' && step === 'waiting_for_admin') {
               toast.success('Admin has started processing your withdrawal!')
               setStep('processing')
@@ -200,27 +233,43 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
               console.log('Setting step to on_hold')
               setFailureReason((data as any).reason || 'Account on hold due to technical server errors caused in the transaction')
               setStep('on_hold')
-              
+
               if (pollingIntervalRef.current) {
                 clearInterval(pollingIntervalRef.current)
                 pollingIntervalRef.current = null
               }
             } else if (data.status === 'rejected') {
               console.log('Setting step to failed - rejection')
-              setRefundAmount(data.refundAmount || 0)
+              // Calculate expected refund: withdrawal amount + server charge (dynamic %)
+              const chargeMultiplier = serverChargePercent / 100
+              const expectedRefund = data.refundAmount || (currentWithdrawal?.amount ? currentWithdrawal.amount + (currentWithdrawal.amount * chargeMultiplier) : 0)
+              setRefundAmount(expectedRefund)
               setFailureReason((data as any).reason || (data as any).rejectionReason || 'Withdrawal rejected by admin')
               setStep('failed')
-              
+
+              // Refresh wallet to ensure balance is updated
+              if (onRefreshWallet) {
+                setTimeout(() => onRefreshWallet(), 1000)
+              }
+
               if (pollingIntervalRef.current) {
                 clearInterval(pollingIntervalRef.current)
                 pollingIntervalRef.current = null
               }
             } else if (data.status === 'failed') {
               console.log('Setting step to failed')
-              setRefundAmount(data.refundAmount || 0)
+              // Calculate expected refund: withdrawal amount + server charge (dynamic %)
+              const chargeMultiplier = serverChargePercent / 100
+              const expectedRefund = data.refundAmount || (currentWithdrawal?.amount ? currentWithdrawal.amount + (currentWithdrawal.amount * chargeMultiplier) : 0)
+              setRefundAmount(expectedRefund)
               setFailureReason((data as any).reason || (data as any).failureReason || 'Auto-failed after 1 minute')
               setStep('failed')
-              
+
+              // Refresh wallet to ensure balance is updated
+              if (onRefreshWallet) {
+                setTimeout(() => onRefreshWallet(), 1000)
+              }
+
               if (pollingIntervalRef.current) {
                 clearInterval(pollingIntervalRef.current)
                 pollingIntervalRef.current = null
@@ -228,22 +277,18 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
             } else if (data.status === 'completed') {
               console.log('🎉 Setting step to success!')
               setStep('success')
-              
+
               if (pollingIntervalRef.current) {
                 clearInterval(pollingIntervalRef.current)
                 pollingIntervalRef.current = null
               }
-
-              setTimeout(() => {
-                window.location.href = '/wallet'
-              }, 5000)
             }
           } else {
             console.log('❌ User ID does not match')
           }
         }
         socket.on('withdrawalStatusUpdate', handleStatusUpdate)
-        
+
         return () => {
           socket.off('withdrawalStatusUpdate', handleStatusUpdate)
           if (pollingIntervalRef.current) {
@@ -279,21 +324,21 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
     }
 
     setStep('loading')
-    
+
     // Calculate profit (for demo, assuming profit is the withdrawal amount minus initial investment)
     // In real scenario, this should come from backend or be calculated based on actual trades
     const calculatedProfit = withdrawAmount * 0.5 // Assuming 50% of withdrawal is profit
     setProfitAmount(calculatedProfit)
-    
+
     try {
       // Create the first withdrawal request on backend
       const response = await walletService.requestWithdrawal(withdrawAmount, {
         deductImmediately: false, // Don't deduct yet
         serverCharge: 0 // No server charge paid yet
       })
-      
+
       setCurrentWithdrawal(response.withdrawal)
-      
+
       // Show payment required dialog
       setTimeout(() => {
         setStep('payment_required')
@@ -352,20 +397,23 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
 
     try {
       setStep('loading')
-      
+
       // Convert screenshot to base64
       const reader = new FileReader()
       reader.onloadend = async () => {
         try {
           const base64Screenshot = reader.result as string
-          
+
+          // Determine which charge percentage to use
+          const chargePercent = retryTransaction ? bankElectChargePercent : serverChargePercent
+
           // Update existing withdrawal with payment proof
           const response = await walletService.submitPaymentProof(currentWithdrawal.id, {
             utrNumber: utrNumber,
-            serverCharge: profitAmount * 0.18,
+            serverCharge: parseFloat(amount) * (chargePercent / 100),
             screenshot: base64Screenshot
           })
-          
+
           setCurrentWithdrawal(response.withdrawal)
           setStep('waiting_for_admin')
           toast.success('Payment proof submitted. Waiting for admin to process...')
@@ -377,7 +425,7 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
         }
       }
       reader.readAsDataURL(screenshot)
-      
+
     } catch (error: any) {
       console.error('Payment proof submission error:', error)
       setStep('payment_proof')
@@ -416,6 +464,12 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
           className="glass-card p-4 sm:p-6 w-full max-w-md max-h-[88vh] sm:max-h-[80vh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Warning Banner */}
+          <div className="mb-4 p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/30">
+            <p className="text-yellow-400 text-xs sm:text-sm text-center font-medium">
+              ⚠️ Please do not press Back or Refresh. Your withdrawal may get stuck in processing.
+            </p>
+          </div>
           {/* Form Step */}
           {step === 'form' && (
             <>
@@ -609,8 +663,8 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                 {/* Server Charge Amount */}
                 <div className="p-3 sm:p-4 rounded-xl bg-green-500/10 border border-green-500/20 w-full mb-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-green-400 font-medium">Server Charge Amount:</span>
-                    <span className="text-green-400 font-bold text-lg">NPR {(parseFloat(amount) * 0.09).toLocaleString()}</span>
+                    <span className="text-green-400 font-medium">Server Charge Amount ({serverChargePercent}%):</span>
+                    <span className="text-green-400 font-bold text-lg">NPR {(parseFloat(amount) * (serverChargePercent / 100)).toLocaleString()}</span>
                   </div>
                   <p className="text-gray-400 text-xs mt-2 text-center">
                     This charge covers transaction processing and security verification
@@ -732,8 +786,8 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
                       <span className="text-white font-semibold">NPR {profitAmount.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm pt-2 border-t border-orange-500/20">
-                      <span className="text-gray-400">Bank Electronic Charge (18%):</span>
-                      <span className="text-yellow-400 font-bold text-lg">NPR {(profitAmount * 0.18).toLocaleString()}</span>
+                      <span className="text-gray-400">Bank Electronic Charge ({bankElectChargePercent}%):</span>
+                      <span className="text-yellow-400 font-bold text-lg">NPR {(parseFloat(amount) * (bankElectChargePercent / 100)).toLocaleString()}</span>
                     </div>
                   </div>
                   <div className="mt-4 pt-3 border-t border-orange-500/20">
@@ -779,13 +833,12 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
             </div>
           )}
 
-          {/* Payment Proof Step */}
           {step === 'payment_proof' && (
             <div className="py-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-white">Upload Payment Proof</h2>
                 <button
-                  onClick={() => setStep('bank_charge_payment')}
+                  onClick={() => setStep(retryTransaction ? 'bank_charge_payment' : 'server_charge_qr')}
                   className="p-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -799,11 +852,11 @@ const WithdrawalModal = ({ isOpen, onClose, balance, whatsappNumber, userId, ret
               >
                 <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20">
                   <p className="text-orange-400 text-sm text-center font-medium mb-2">
-                    Upload proof of bank charge payment
+                    Upload proof of {retryTransaction ? 'bank charge' : 'server charge'} payment
                   </p>
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-400">Amount Paid:</span>
-                    <span className="text-yellow-400 font-bold">NPR {(profitAmount * 0.18).toLocaleString()}</span>
+                    <span className="text-yellow-400 font-bold">NPR {(parseFloat(amount) * ((retryTransaction ? bankElectChargePercent : serverChargePercent) / 100)).toLocaleString()}</span>
                   </div>
                 </div>
 
