@@ -12,7 +12,7 @@ class WebSocketService {
   connect() {
     if (this.socket?.connected) return
 
-    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:3000'
+    const wsUrl = import.meta.env.VITE_WS_URL || import.meta.env.VITE_API_URL || 'http://localhost:3000'
     this.socket = io(wsUrl, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
