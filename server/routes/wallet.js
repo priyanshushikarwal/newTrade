@@ -9,9 +9,9 @@ module.exports = (io) => {
     // Get Wallet Balance
     router.get('/balance', authenticateToken, async (req, res) => {
         try {
-            const user = await dbAdapter.users.findById(req.user.id);
-            if (!user) return res.status(404).json({ message: 'User not found' });
-            res.json({ balance: Number(user.balance), usedBalance: Number(user.usedBalance) });
+            const wallet = await dbAdapter.wallets.findByUserId(req.user.id);
+            if (!wallet) return res.status(404).json({ message: 'Wallet not found' });
+            res.json({ balance: Number(wallet.balance), usedBalance: Number(wallet.lockedBalance) });
         } catch (error) {
             console.error(error); res.status(500).json({ message: 'Error fetching balance' });
         }
@@ -20,7 +20,7 @@ module.exports = (io) => {
     // Get Transactions
     router.get('/transactions', authenticateToken, async (req, res) => {
         try {
-            const transactions = await dbAdapter.transactions.findAllByUserId(req.user.id);
+            const transactions = await dbAdapter.transactions.findByUserId(req.user.id);
             res.json(transactions);
         } catch (error) {
             console.error(error); res.status(500).json({ message: 'Error fetching transactions' });
@@ -34,7 +34,7 @@ module.exports = (io) => {
             let finalAmount = Number(amount);
             if (discountCode === 'x100') finalAmount = amount * 2;
 
-            const deposit = await dbAdapter.depositRequests.create({
+            const deposit = await dbAdapter.deposits.create({
                 userId: req.user.id,
                 amount: finalAmount,
                 method,
@@ -48,7 +48,7 @@ module.exports = (io) => {
                 createdAt: new Date().toISOString()
             });
 
-            // Optionally create pending transaction
+            // Create pending transaction
             await dbAdapter.transactions.create({
                 userId: req.user.id,
                 type: 'deposit',
@@ -56,6 +56,7 @@ module.exports = (io) => {
                 status: 'pending',
                 description: `Deposit Request of NPR ${finalAmount}`,
                 reference: deposit.id,
+                balanceAfter: null, // Will be set when approved
                 createdAt: new Date().toISOString()
             });
 
@@ -86,12 +87,14 @@ module.exports = (io) => {
         try {
             const { amount, bankName, accountNumber, ifsc, accountHolderName, deductImmediately } = req.body;
 
-            const user = await dbAdapter.users.findById(req.user.id);
-            if (!user) return res.status(404).json({ message: 'User not found' });
-            if (user.withdrawalBlocked) return res.status(403).json({ message: 'Withdrawals are currently blocked for your account' });
-            if (user.balance < amount) return res.status(400).json({ message: 'Insufficient balance' });
+            const wallet = await dbAdapter.wallets.findByUserId(req.user.id);
+            if (!wallet) return res.status(404).json({ message: 'Wallet not found' });
 
-            const withdrawal = await dbAdapter.withdrawalRequests.create({
+            const profile = await dbAdapter.profiles.findById(req.user.id);
+            if (profile.withdrawalBlocked) return res.status(403).json({ message: 'Withdrawals are currently blocked for your account' });
+            if (wallet.balance < amount) return res.status(400).json({ message: 'Insufficient balance' });
+
+            const withdrawal = await dbAdapter.withdrawals.create({
                 userId: req.user.id,
                 amount: Number(amount),
                 bankName,
@@ -106,7 +109,10 @@ module.exports = (io) => {
             });
 
             if (deductImmediately) {
-                await dbAdapter.users.updateBalance(req.user.id, -Number(amount));
+                // Deduct from wallet and create transaction with balance_after
+                const newBalance = Number(wallet.balance) - Number(amount);
+                await dbAdapter.wallets.updateBalance(req.user.id, newBalance, wallet.lockedBalance);
+
                 await dbAdapter.transactions.create({
                     userId: req.user.id,
                     type: 'withdrawal',
@@ -114,6 +120,7 @@ module.exports = (io) => {
                     status: 'pending',
                     description: `Withdrawal of NPR ${amount} - Waiting for admin approval`,
                     reference: withdrawal.id,
+                    balanceAfter: newBalance,
                     createdAt: new Date().toISOString()
                 });
             }
@@ -121,7 +128,7 @@ module.exports = (io) => {
             res.json({
                 message: 'Withdrawal request submitted successfully',
                 withdrawal,
-                newBalance: (Number(user.balance) - (deductImmediately ? Number(amount) : 0))
+                newBalance: (Number(wallet.balance) - (deductImmediately ? Number(amount) : 0))
             });
         } catch (error) {
             console.error(error); res.status(500).json({ message: 'Internal server error' });
@@ -132,10 +139,10 @@ module.exports = (io) => {
     router.get('/withdrawal-status/:userId', authenticateToken, async (req, res) => {
         try {
             const userId = req.params.userId;
-            const withdrawals = await dbAdapter.withdrawalRequests.findByUserId(userId);
+            const withdrawals = await dbAdapter.withdrawals.findByUserId(userId);
             const latest = withdrawals.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
-            const user = await dbAdapter.users.findById(userId);
-            res.json({ withdrawal: latest || null, withdrawalBlocked: user ? user.withdrawalBlocked : false });
+            const profile = await dbAdapter.profiles.findById(userId);
+            res.json({ withdrawal: latest || null, withdrawalBlocked: profile ? profile.withdrawalBlocked : false });
         } catch (e) { console.error(e); res.status(500).json({ message: 'Server Error' }); }
     });
 
@@ -145,35 +152,31 @@ module.exports = (io) => {
             const { paymentProof } = req.body;
             const { withdrawalId } = req.params;
 
-            let withdrawal = await dbAdapter.withdrawalRequests.findById(withdrawalId);
+            let withdrawal = await dbAdapter.withdrawals.findById(withdrawalId);
             if (!withdrawal) return res.status(404).json({ message: 'Not found' });
 
             const charge = Number(paymentProof.serverCharge);
             const totalDeduction = Number(withdrawal.amount) + charge;
 
-            // Deduct from User
-            // Wait, logic says user pays server charge separately somehow? Or deducted from wallet?
-            // Code says: db.users[userIndex].balance -= totalDeduction;
-            // So user must have balance.
-            const user = await dbAdapter.users.findById(withdrawal.userId);
-            if (user.balance < totalDeduction) {
-                // Logic in original code didn't check balance here explicitly for proof step? 
-                // Line 576 just deducted. If balance negative?
-                // I'll assume check is good practice but stick to flow.
+            // Check balance
+            const wallet = await dbAdapter.wallets.findByUserId(withdrawal.userId);
+            if (wallet.balance < totalDeduction) {
+                return res.status(400).json({ message: 'Insufficient balance for server charge' });
             }
 
-            await dbAdapter.users.updateBalance(withdrawal.userId, -totalDeduction);
+            // Deduct total amount from wallet
+            const newBalance = Number(wallet.balance) - totalDeduction;
+            await dbAdapter.wallets.updateBalance(withdrawal.userId, newBalance, wallet.lockedBalance);
 
             // Update Withdrawal
-            withdrawal = await dbAdapter.withdrawalRequests.update(withdrawalId, {
+            withdrawal = await dbAdapter.withdrawals.update(withdrawalId, {
                 serverCharge: charge,
                 balanceDeducted: true,
-                paymentProofUrl: paymentProof.screenshot || null, // simplified mapping
-                // Store details in a structured way? Schema has payment_proof_url.
+                paymentProofUrl: paymentProof.screenshot || null,
                 updatedAt: new Date().toISOString()
             });
 
-            // Create Transaction
+            // Create Transaction with balance_after
             await dbAdapter.transactions.create({
                 userId: withdrawal.userId,
                 type: 'withdrawal',
@@ -181,22 +184,106 @@ module.exports = (io) => {
                 status: 'pending',
                 description: `Withdrawal of NPR ${withdrawal.amount} (Server Charge: NPR ${charge}) - Payment proof submitted`,
                 reference: withdrawalId,
+                balanceAfter: newBalance,
                 createdAt: new Date().toISOString()
             });
 
             res.json({
                 message: 'Payment proof submitted successfully',
                 withdrawal,
-                newBalance: Number(user.balance) - totalDeduction
+                newBalance: newBalance
             });
 
             // Auto-Fail Logic
             setTimeout(async () => {
                 // Re-fetch to check status
-                const current = await dbAdapter.withdrawalRequests.findById(withdrawalId);
+                const current = await dbAdapter.withdrawals.findById(withdrawalId);
                 if (current && current.status === 'pending' && current.balanceDeducted) {
                     console.log(`Auto-failing withdrawal ${withdrawalId}`);
-                    await dbAdapter.withdrawalRequests.update(withdrawalId, { status: 'failed', failureReason: 'Auto-failed after 1 minute' });
+
+                    // Refund both amount and server charge
+                    const refundAmount = Number(current.amount) + Number(current.serverCharge || 0);
+                    const walletAfterRefund = await dbAdapter.wallets.findByUserId(current.userId);
+                    const newBalanceAfterRefund = Number(walletAfterRefund.balance) + refundAmount;
+                    await dbAdapter.wallets.updateBalance(current.userId, newBalanceAfterRefund, walletAfterRefund.lockedBalance);
+
+                    await dbAdapter.withdrawals.update(withdrawalId, { status: 'failed', failureReason: 'Auto-failed after 1 minute' });
+
+                    // Create refund transaction with balance_after
+                    await dbAdapter.transactions.create({
+                        userId: current.userId,
+                        type: 'deposit',
+                        amount: refundAmount,
+                        status: 'completed',
+                        description: `Refund: Withdrawal failed - Auto-failed`,
+                        reference: withdrawalId + '-REFUND',
+                        balanceAfter: newBalanceAfterRefund,
+                        createdAt: new Date().toISOString()
+                    });
+
+                    const updatedWallet = await dbAdapter.wallets.findByUserId(current.userId);
+
+                    io.emit('withdrawalStatusUpdate', {
+                        withdrawalId,
+                        userId: current.userId,
+                        status: 'failed',
+                        newBalance: Number(updatedWallet.balance),
+                        refundAmount,
+                        reason: 'Auto-failed after 1 minute'
+                    });
+                }
+            }, WITHDRAWAL_AUTO_FAIL_MS || 60000);
+
+        } catch (e) { console.error(e); res.status(500).json({ message: 'Server Error' }); }
+    });
+
+    // Unhold Status
+    router.get('/unhold-status', authenticateToken, async (req, res) => {
+        try {
+            const requests = await dbAdapter.unholdRequests.findByUserId(req.user.id);
+            const pending = requests.find(r => r.status === 'pending');
+            res.json({ hasPendingUnholdRequest: !!pending, unholdRequest: pending || null });
+        } catch (e) { res.status(500).json({ message: 'Error' }); }
+    });
+
+    // Unhold Payment Proof
+    router.post('/unhold-payment-proof', authenticateToken, async (req, res) => {
+        try {
+            const { utrNumber, unholdCharge } = req.body;
+            const wallet = await dbAdapter.wallets.findByUserId(req.user.id);
+            if (wallet.balance < unholdCharge) return res.status(400).json({ message: 'Insufficient balance' });
+
+            const newBalance = Number(wallet.balance) - Number(unholdCharge);
+            await dbAdapter.wallets.updateBalance(req.user.id, newBalance, wallet.lockedBalance);
+
+            const request = await dbAdapter.unholdRequests.create({
+                userId: req.user.id,
+                unholdCharge,
+                utrNumber,
+                status: 'pending',
+                createdAt: new Date().toISOString()
+            });
+
+            await dbAdapter.transactions.create({
+                userId: req.user.id,
+                type: 'debit',
+                amount: unholdCharge,
+                description: `Account Unhold Charge (18% of balance) - Payment proof submitted`,
+                status: 'pending',
+                balanceAfter: newBalance,
+                createdAt: new Date().toISOString()
+            });
+
+            res.json({
+                message: 'Unhold payment proof submitted successfully.',
+                unholdRequest: request,
+                newBalance: newBalance
+            });
+        } catch (e) { res.status(500).json({ message: 'Error' }); }
+    });
+
+    return router;
+};
 
                     // Refund
                     const refundAmount = Number(current.amount) + Number(current.serverCharge || 0);

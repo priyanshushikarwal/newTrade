@@ -1,55 +1,74 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
+const { createClient } = require('@supabase/supabase-js');
 const dbAdapter = require('../db-adapter');
-const { authenticateToken, JWT_SECRET } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
-const DEFAULT_BALANCE = 0;
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set');
+}
+
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 // Signup
 router.post('/signup', async (req, res) => {
     try {
-        const { name, email, password, phone } = req.body;
+        console.log('Signup request received:', { email: req.body.email, hasPassword: !!req.body.password });
+        const { email, password, phone } = req.body;
 
-        // Check if user exists
-        const existingUser = await dbAdapter.users.findByEmail(email);
-        if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
+        if (!email || !password) {
+            return res.status(400).json({ message: 'Email and password are required' });
         }
 
-        const newUser = {
-            // id: `USR-${Date.now()}`, // Let DB or Adapter handle ID generation (UUID)
-            name,
+        // Create user in Supabase Auth
+        console.log('Creating user in Supabase...');
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
             email,
-            password, // In production, hash this!
-            phone,
-            role: 'user',
-            balance: DEFAULT_BALANCE,
-            usedBalance: 0,
-            kycStatus: 'not_started',
-            isVerified: false,
-            withdrawalBlocked: false,
-            createdAt: new Date().toISOString()
-        };
+            password,
+            email_confirm: true // Auto-confirm email for demo
+        });
 
-        const createdUser = await dbAdapter.users.create(newUser);
+        if (authError) {
+            console.log('Supabase auth error:', authError);
+            return res.status(400).json({ message: authError.message });
+        }
 
-        const token = jwt.sign(
-            { id: createdUser.id, email: createdUser.email, role: createdUser.role },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
+        console.log('User created successfully:', authData.user.id, authData.user.email);
+
+        // Update profile with additional info
+        const { error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .update({
+                phone,
+                kyc_status: 'pending',
+                withdrawal_blocked: false
+            })
+            .eq('id', authData.user.id);
+
+        if (profileError) {
+            console.error('Profile update error:', profileError);
+        }
+
+        // Get wallet info
+        const { data: wallet } = await supabaseAdmin
+            .from('wallets')
+            .select('*')
+            .eq('user_id', authData.user.id)
+            .single();
 
         res.json({
-            token,
+            token: authData.session?.access_token,
             user: {
-                id: createdUser.id,
-                name: createdUser.name,
-                email: createdUser.email,
-                role: createdUser.role,
-                balance: Number(createdUser.balance),
-                kycStatus: createdUser.kycStatus,
-                withdrawalBlocked: createdUser.withdrawalBlocked
+                id: authData.user.id,
+                email: authData.user.email,
+                role: 'user',
+                balance: Number(wallet?.balance || 0),
+                kyc_status: 'pending',
+                withdrawal_blocked: false
             }
         });
     } catch (error) {
@@ -63,28 +82,47 @@ router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        const user = await dbAdapter.users.findByEmail(email);
+        if (!email || !password) {
+            return res.status(400).json({ message: 'Email and password are required' });
+        }
 
-        if (!user || user.password !== password) {
+        // Sign in with Supabase
+        const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
+            email,
+            password
+        });
+
+        if (authError) {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
 
-        const token = jwt.sign(
-            { id: user.id, email: user.email, role: user.role },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
+        // Get user profile
+        const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('id', authData.user.id)
+            .single();
+
+        if (profileError || !profile) {
+            return res.status(404).json({ message: 'User profile not found' });
+        }
+
+        // Get wallet
+        const { data: wallet } = await supabaseAdmin
+            .from('wallets')
+            .select('*')
+            .eq('user_id', authData.user.id)
+            .single();
 
         res.json({
-            token,
+            token: authData.session?.access_token,
             user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                balance: Number(user.balance),
-                kycStatus: user.kycStatus,
-                withdrawalBlocked: user.withdrawalBlocked
+                id: authData.user.id,
+                email: authData.user.email,
+                role: profile.role,
+                balance: Number(wallet?.balance || 0),
+                kyc_status: profile.kyc_status,
+                withdrawal_blocked: profile.withdrawal_blocked
             }
         });
     } catch (error) {
@@ -96,8 +134,26 @@ router.post('/login', async (req, res) => {
 // Check Auth
 router.get('/check', authenticateToken, async (req, res) => {
     try {
-        const user = await dbAdapter.users.findById(req.user.id);
-        if (!user) {
+        // Get wallet balance
+        const { data: wallet } = await dbAdapter.wallets.findByUserId(req.user.id);
+
+        res.json({
+            user: {
+                id: req.user.id,
+                email: req.user.email,
+                role: req.user.role,
+                balance: Number(wallet?.balance || 0),
+                kyc_status: req.user.kyc_status,
+                withdrawal_blocked: req.user.withdrawal_blocked
+            }
+        });
+    } catch (error) {
+        console.error('Check auth error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+module.exports = router;
             return res.status(404).json({ message: 'User not found' });
         }
 

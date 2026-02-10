@@ -1,22 +1,63 @@
-const jwt = require('jsonwebtoken');
+const { createClient } = require('@supabase/supabase-js');
 
-const JWT_SECRET = 'your-super-secret-jwt-key-change-in-production';
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
-const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment variables');
+}
 
-    if (!token) {
-        return res.status(401).json({ message: 'Access token required' });
-    }
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) {
+const authenticateToken = async (req, res, next) => {
+    try {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
+
+        if (!token) {
+            return res.status(401).json({ message: 'Access token required' });
+        }
+
+        // Verify Supabase JWT
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+
+        if (error || !user) {
             return res.status(403).json({ message: 'Invalid or expired token' });
         }
-        req.user = user;
+
+        // Get user profile with role
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+
+        if (profileError || !profile) {
+            return res.status(403).json({ message: 'User profile not found' });
+        }
+
+        req.user = {
+            id: user.id,
+            email: user.email,
+            role: profile.role,
+            kyc_status: profile.kyc_status,
+            withdrawal_blocked: profile.withdrawal_blocked
+        };
+
         next();
-    });
+    } catch (error) {
+        console.error('Auth middleware error:', error);
+        return res.status(500).json({ message: 'Authentication error' });
+    }
 };
 
-module.exports = { authenticateToken, JWT_SECRET };
+const requireRole = (roles) => {
+    return (req, res, next) => {
+        if (!req.user || !roles.includes(req.user.role)) {
+            return res.status(403).json({ message: 'Insufficient permissions' });
+        }
+        next();
+    };
+};
+
+module.exports = { authenticateToken, requireRole };

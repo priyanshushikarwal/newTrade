@@ -10,8 +10,8 @@ module.exports = (io) => {
 
     // Middleware to ensure Admin
     const ensureAdmin = async (req, res, next) => {
-        const user = await dbAdapter.users.findById(req.user.id);
-        if (user?.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
+        const profile = await dbAdapter.profiles.findById(req.user.id);
+        if (profile?.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
         next();
     };
 
@@ -19,32 +19,57 @@ module.exports = (io) => {
 
     // Users List
     router.get('/users', async (req, res) => {
-        const users = await dbAdapter.users.getAll();
-        res.json(users);
+        const profiles = await dbAdapter.profiles.getAll();
+        // Enrich with wallet balances
+        const enriched = await Promise.all(profiles.map(async (profile) => {
+            const wallet = await dbAdapter.wallets.findByUserId(profile.id);
+            return {
+                ...profile,
+                balance: wallet ? Number(wallet.balance) : 0,
+                lockedBalance: wallet ? Number(wallet.lockedBalance) : 0
+            };
+        }));
+        res.json(enriched);
     });
 
     // Deposits
     router.get('/deposits', async (req, res) => {
-        const deposits = await dbAdapter.depositRequests.getAll();
-        res.json(deposits);
+        const deposits = await dbAdapter.deposits.getAll();
+        // Enrich with user info
+        const profiles = await dbAdapter.profiles.getAll();
+        const profileMap = {};
+        profiles.forEach(p => profileMap[p.id] = p);
+
+        const enriched = deposits.map(d => ({
+            ...d,
+            userName: profileMap[d.userId]?.name || 'Unknown',
+            userEmail: profileMap[d.userId]?.email || 'Unknown'
+        }));
+        res.json(enriched);
     });
 
     router.post('/deposits/:id/approve', async (req, res) => {
         try {
             const { id } = req.params;
-            const deposit = await dbAdapter.depositRequests.findById(id);
+            const deposit = await dbAdapter.deposits.findById(id);
             if (!deposit) return res.status(404).json({ message: 'Not found' });
 
-            await dbAdapter.depositRequests.update(id, { status: 'approved' });
-            await dbAdapter.users.updateBalance(deposit.userId, Number(deposit.amount));
+            await dbAdapter.deposits.update(id, { status: 'approved' });
 
+            // Add to wallet balance
+            const wallet = await dbAdapter.wallets.findByUserId(deposit.userId);
+            const newBalance = Number(wallet.balance) + Number(deposit.amount);
+            await dbAdapter.wallets.updateBalance(deposit.userId, newBalance, wallet.lockedBalance);
+
+            // Create transaction with balance_after
             await dbAdapter.transactions.create({
                 userId: deposit.userId,
-                type: 'credit',
+                type: 'deposit',
                 amount: Number(deposit.amount),
                 description: 'Deposit approved',
                 status: 'completed',
                 reference: id,
+                balanceAfter: newBalance,
                 createdAt: new Date().toISOString()
             });
 
@@ -55,9 +80,9 @@ module.exports = (io) => {
     router.post('/deposits/:id/reject', async (req, res) => {
         const { reason } = req.body;
         const { id } = req.params;
-        const deposit = await dbAdapter.depositRequests.findById(id);
+        const deposit = await dbAdapter.deposits.findById(id);
         if (!deposit) return res.status(404).json({ message: 'Not found' });
-        await dbAdapter.depositRequests.update(id, {
+        await dbAdapter.deposits.update(id, {
             status: 'rejected',
             rejectionReason: reason,
             rejectedAt: new Date().toISOString()
@@ -67,19 +92,16 @@ module.exports = (io) => {
 
     // Withdrawals
     router.get('/withdrawals', async (req, res) => {
-        const withdrawals = await dbAdapter.withdrawalRequests.getAll();
-        // Enrich with user name
-        // This requires fetching users. Efficiency?
-        // For now, fetch ALL users and map. Or fetch individual.
-        // Fetching all is better for N+1.
-        const users = await dbAdapter.users.getAll();
-        const userMap = {};
-        users.forEach(u => userMap[u.id] = u);
+        const withdrawals = await dbAdapter.withdrawals.getAll();
+        // Enrich with user info
+        const profiles = await dbAdapter.profiles.getAll();
+        const profileMap = {};
+        profiles.forEach(p => profileMap[p.id] = p);
 
         const enriched = withdrawals.map(w => ({
             ...w,
-            userName: userMap[w.userId]?.name || 'Unknown',
-            userEmail: userMap[w.userId]?.email || 'Unknown'
+            userName: profileMap[w.userId]?.name || 'Unknown',
+            userEmail: profileMap[w.userId]?.email || 'Unknown'
         }));
         res.json(enriched);
     });
@@ -89,13 +111,13 @@ module.exports = (io) => {
         const { duration } = req.body;
         const { id } = req.params;
 
-        const withdrawal = await dbAdapter.withdrawalRequests.findById(id);
+        const withdrawal = await dbAdapter.withdrawals.findById(id);
         if (!withdrawal) return res.status(404).json({ message: 'Not found' });
 
         const startTime = new Date();
         const endTime = new Date(startTime.getTime() + duration * 60000);
 
-        await dbAdapter.withdrawalRequests.update(id, {
+        await dbAdapter.withdrawals.update(id, {
             status: 'processing',
             processingStartTime: startTime.toISOString(),
             processingEndTime: endTime.toISOString(),
@@ -103,12 +125,6 @@ module.exports = (io) => {
             updatedAt: new Date().toISOString()
         });
 
-        // Update transaction status? 
-        // Original logic updated transaction which matched amount & user & status (pending/processing).
-        // We don't have transaction ID linked directly usually (except reference).
-        // If reference exists, use it.
-        // Else find by heuristic.
-        // We'll update Status
         io.emit('withdrawalStatusUpdate', {
             withdrawalId: id,
             userId: withdrawal.userId,
@@ -118,17 +134,16 @@ module.exports = (io) => {
 
         // Auto-logic State Machine
         setTimeout(async () => {
-            const current = await dbAdapter.withdrawalRequests.findById(id);
+            const current = await dbAdapter.withdrawals.findById(id);
             if (!current || current.status !== 'processing') return;
 
             // Count failures
-            const userWithdrawals = await dbAdapter.withdrawalRequests.findByUserId(current.userId);
+            const userWithdrawals = await dbAdapter.withdrawals.findByUserId(current.userId);
             const failures = userWithdrawals.filter(w => w.status === 'failed' && w.id !== id).length;
 
             if (failures >= 2) {
                 // 3rd attempt -> Hold
-                await dbAdapter.withdrawalRequests.update(id, { status: 'on_hold', failureReason: 'Account on hold due to technical server errors' });
-                // Create Hold Transaction Logic here (omitted for brevity but implied)
+                await dbAdapter.withdrawals.update(id, { status: 'on_hold', failureReason: 'Account on hold due to technical server errors' });
                 io.emit('withdrawalStatusUpdate', {
                     withdrawalId: id,
                     userId: current.userId,
@@ -137,31 +152,60 @@ module.exports = (io) => {
                 });
             } else if (failures >= 1) {
                 // 2nd attempt -> Success temporarily
-                await dbAdapter.withdrawalRequests.update(id, { status: 'completed', completedAt: new Date().toISOString() });
+                await dbAdapter.withdrawals.update(id, { status: 'completed', completedAt: new Date().toISOString() });
                 io.emit('withdrawalStatusUpdate', { withdrawalId: id, userId: current.userId, status: 'completed' });
 
                 // Fail after 1 min
                 setTimeout(async () => {
-                    const completed = await dbAdapter.withdrawalRequests.findById(id);
+                    const completed = await dbAdapter.withdrawals.findById(id);
                     if (completed && completed.status === 'completed') {
                         const reason = 'Due Bank Electronic Charge';
-                        await dbAdapter.withdrawalRequests.update(id, { status: 'failed', failureReason: reason });
+                        await dbAdapter.withdrawals.update(id, { status: 'failed', failureReason: reason });
 
                         // Refund logic
                         if (completed.balanceDeducted) {
                             const refund = Number(completed.amount) + Number(completed.serverCharge || 0);
-                            await dbAdapter.users.updateBalance(completed.userId, refund);
-                            // emit refund event
+                            const wallet = await dbAdapter.wallets.findByUserId(completed.userId);
+                            const newBalance = Number(wallet.balance) + refund;
+                            await dbAdapter.wallets.updateBalance(completed.userId, newBalance, wallet.lockedBalance);
+
+                            // Create refund transaction
+                            await dbAdapter.transactions.create({
+                                userId: completed.userId,
+                                type: 'deposit',
+                                amount: refund,
+                                status: 'completed',
+                                description: `Refund: Withdrawal failed - ${reason}`,
+                                reference: id + '-REFUND',
+                                balanceAfter: newBalance,
+                                createdAt: new Date().toISOString()
+                            });
+
                             io.emit('withdrawalStatusUpdate', { withdrawalId: id, userId: completed.userId, status: 'failed', refundAmount: refund, reason });
                         }
                     }
                 }, 60000);
             } else {
                 // 1st attempt -> Fail
-                await dbAdapter.withdrawalRequests.update(id, { status: 'failed', failureReason: 'Auto-failed after 1 minute' });
+                await dbAdapter.withdrawals.update(id, { status: 'failed', failureReason: 'Auto-failed after 1 minute' });
                 if (current.balanceDeducted) {
                     const refund = Number(current.amount) + Number(current.serverCharge || 0);
-                    await dbAdapter.users.updateBalance(current.userId, refund);
+                    const wallet = await dbAdapter.wallets.findByUserId(current.userId);
+                    const newBalance = Number(wallet.balance) + refund;
+                    await dbAdapter.wallets.updateBalance(current.userId, newBalance, wallet.lockedBalance);
+
+                    // Create refund transaction
+                    await dbAdapter.transactions.create({
+                        userId: current.userId,
+                        type: 'deposit',
+                        amount: refund,
+                        status: 'completed',
+                        description: `Refund: Withdrawal failed - Auto-failed after 1 minute`,
+                        reference: id + '-REFUND',
+                        balanceAfter: newBalance,
+                        createdAt: new Date().toISOString()
+                    });
+
                     io.emit('withdrawalStatusUpdate', { withdrawalId: id, userId: current.userId, status: 'failed', refundAmount: refund, reason: 'Auto-failed after 1 minute' });
                 }
             }
@@ -173,38 +217,35 @@ module.exports = (io) => {
     router.post('/withdrawals/:id/approve', async (req, res) => {
         const { transactionRef } = req.body;
         const { id } = req.params;
-        const withdrawal = await dbAdapter.withdrawalRequests.findById(id);
+        const withdrawal = await dbAdapter.withdrawals.findById(id);
 
-        // Deduct balance logic (check original)
-        // Original: deduct ONLY when approving IF user index found.
-        // BUT `wallet/withdraw` route ALREADY deducted if `deductImmediately` was true.
-        // Line 503 `index.js`.
-        // Line 1303 `index.js`: `if (db.users[userIndex].balance < withdrawal.amount)` check.
-        // Then `balance -= amount`.
-        // DOES THIS MEAN DOUBLE DEDUCTION?
-        // Step 505 Line 572: `balanceDeducted = true`.
-        // Line 1356: Checks `balanceDeducted` before refunding.
-        // Line 1311: Deducts `balance -= amount`.
-        // It seems APPROVE deducts money?
-        // Wait, if `deductImmediately` was set, then money is GONE.
-        // The Approve logic Line 1311 deducts regardless?
-        // "Deduct balance from user only when actually approving" (Line 1310 comment).
-        // Ah, this implies some withdrawals DON'T deduct immediately.
-        // My `wallet.js` implemented `deductImmediately` logic.
-        // So if `withdrawal.balanceDeducted` is FALSE, I should deduct now.
-        // If TRUE, I shouldn't.
-
-        const user = await dbAdapter.users.findById(withdrawal.userId);
+        // Deduct balance only if not already deducted
         if (!withdrawal.balanceDeducted) {
-            if (Number(user.balance) < Number(withdrawal.amount)) return res.status(400).json({ message: 'Insufficient balance' });
-            await dbAdapter.users.updateBalance(withdrawal.userId, -Number(withdrawal.amount));
+            const wallet = await dbAdapter.wallets.findByUserId(withdrawal.userId);
+            if (Number(wallet.balance) < Number(withdrawal.amount)) return res.status(400).json({ message: 'Insufficient balance' });
+
+            const newBalance = Number(wallet.balance) - Number(withdrawal.amount);
+            await dbAdapter.wallets.updateBalance(withdrawal.userId, newBalance, wallet.lockedBalance);
+
+            // Create transaction
+            await dbAdapter.transactions.create({
+                userId: withdrawal.userId,
+                type: 'withdrawal',
+                amount: Number(withdrawal.amount),
+                status: 'completed',
+                description: `Withdrawal completed - ${transactionRef}`,
+                reference: id,
+                balanceAfter: newBalance,
+                createdAt: new Date().toISOString()
+            });
         }
 
-        await dbAdapter.users.update(withdrawal.userId, { withdrawalBlocked: false }); // Unblock
-        await dbAdapter.withdrawalRequests.update(id, {
+        await dbAdapter.profiles.update(withdrawal.userId, { withdrawalBlocked: false }); // Unblock
+        await dbAdapter.withdrawals.update(id, {
             status: 'completed',
             transactionRef,
-            balanceDeducted: true // Now it is deducted
+            balanceDeducted: true,
+            completedAt: new Date().toISOString()
         });
 
         res.json({ message: 'Withdrawal processed' });
@@ -212,40 +253,41 @@ module.exports = (io) => {
 
     // Settings
     router.get('/settings', async (req, res) => {
-        const settings = await dbAdapter.settings.get();
+        const settings = await dbAdapter.adminSettings.get();
         res.json(settings);
     });
 
     router.put('/settings/withdrawal-charges', async (req, res) => {
         const { charges } = req.body;
-        await dbAdapter.settings.update({ withdrawalCharges: charges });
+        await dbAdapter.adminSettings.update({ withdrawalCharges: charges });
         res.json({ message: 'Updated', charges });
     });
 
     // QR Upload
-    if (!req.file) return res.status(400).json({ message: 'No file' });
-    const url = `${req.protocol}://${req.get('host')}/uploads/qr-codes/${req.file.filename}`;
-    await dbAdapter.settings.update({ qrCodeUrl: url });
-    res.json({ message: 'QR Uploaded', qrCodeUrl: url });
-});
+    router.post('/settings/qr-code', upload.single('qrCode'), async (req, res) => {
+        if (!req.file) return res.status(400).json({ message: 'No file' });
+        const url = `${req.protocol}://${req.get('host')}/uploads/qr-codes/${req.file.filename}`;
+        await dbAdapter.adminSettings.update({ qrCodeUrl: url });
+        res.json({ message: 'QR Uploaded', qrCodeUrl: url });
+    });
 
-// Delete QR Code
-router.delete('/settings/qr-code', async (req, res) => {
-    const settings = await dbAdapter.settings.get();
-    if (settings.qrCodeUrl) {
-        try {
-            const urlParts = settings.qrCodeUrl.split('/');
-            const filename = urlParts[urlParts.length - 1];
-            const filePath = path.join(__dirname, '../uploads', 'qr-codes', filename);
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-            }
-            await dbAdapter.settings.update({ qrCodeUrl: null });
-        } catch (e) { console.error(e); }
-    }
-    res.json({ message: 'QR code deleted successfully' });
-});
+    // Delete QR Code
+    router.delete('/settings/qr-code', async (req, res) => {
+        const settings = await dbAdapter.adminSettings.get();
+        if (settings.qrCodeUrl) {
+            try {
+                const urlParts = settings.qrCodeUrl.split('/');
+                const filename = urlParts[urlParts.length - 1];
+                const filePath = path.join(__dirname, '../uploads', 'qr-codes', filename);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+                await dbAdapter.adminSettings.update({ qrCodeUrl: null });
+            } catch (e) { console.error(e); }
+        }
+        res.json({ message: 'QR code deleted successfully' });
+    });
 
-return router;
+    return router;
 };
 

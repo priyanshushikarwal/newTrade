@@ -6,6 +6,18 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { createClient } = require('@supabase/supabase-js');
+require('dotenv').config();
+
+// Initialize Supabase Admin Client
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set');
+}
+
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 const app = express();
 const server = http.createServer(app);
@@ -163,108 +175,211 @@ const instruments = [
   { symbol: 'AXISBANK', name: 'Axis Bank', price: 1045.30, change: -4.50, changePercent: -0.43, volume: 2987000, high: 1055.00, low: 1038.00, open: 1050.00 }
 ];
 
-// Middleware to verify JWT
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+// Middleware to verify Supabase JWT
+const authenticateToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-  if (!token) {
-    return res.status(401).json({ message: 'Access token required' });
-  }
+    if (!token) {
+      return res.status(401).json({ message: 'Access token required' });
+    }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
+    // Verify token with Supabase
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+    if (error || !user) {
       return res.status(403).json({ message: 'Invalid or expired token' });
     }
-    req.user = user;
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      role: user.role || 'user'
+    };
     next();
-  });
+  } catch (error) {
+    console.error('Token verification error:', error);
+    return res.status(403).json({ message: 'Invalid or expired token' });
+  }
 };
 
 // Auth Routes
-app.post('/api/auth/signup', (req, res) => {
-  const { name, email, password, phone } = req.body;
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    console.log('Signup request received:', { email: req.body.email, hasPassword: !!req.body.password });
+    const { email, password, phone } = req.body;
 
-  // Check if user exists
-  if (db.users.find(u => u.email === email)) {
-    return res.status(400).json({ message: 'User already exists' });
-  }
-
-  const user = {
-    id: `USR-${Date.now()}`,
-    name,
-    email,
-    password, // In production, hash this!
-    phone,
-    role: 'user',
-    balance: DEFAULT_BALANCE,
-    usedBalance: 0,
-    kycStatus: 'not_started',
-    isVerified: false,
-    withdrawalBlocked: false,
-    createdAt: new Date().toISOString()
-  };
-
-  db.users.push(user);
-
-  const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-
-  res.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      balance: user.balance,
-      kycStatus: user.kycStatus,
-      withdrawalBlocked: user.withdrawalBlocked
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
     }
-  });
+
+    // Create user in Supabase Auth
+    console.log('Creating user in Supabase...');
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true // Auto-confirm email for demo
+    });
+
+    if (authError) {
+      console.log('Supabase auth error:', authError);
+      return res.status(400).json({ message: authError.message });
+    }
+
+    console.log('User created successfully:', authData.user.id, authData.user.email);
+
+    // Update profile with additional info (skip phone for now as column may not exist)
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .update({
+        kyc_status: 'pending',
+        withdrawal_blocked: false
+      })
+      .eq('id', authData.user.id);
+
+    if (profileError) {
+      console.error('Profile update error:', profileError);
+    }
+
+    // Get wallet info
+    const { data: wallet } = await supabaseAdmin
+      .from('wallets')
+      .select('*')
+      .eq('user_id', authData.user.id)
+      .single();
+
+    res.json({
+      token: authData.session?.access_token,
+      user: {
+        id: authData.user.id,
+        email: authData.user.email,
+        role: 'user',
+        balance: Number(wallet?.balance || 0),
+        kyc_status: 'pending',
+        withdrawal_blocked: false
+      }
+    });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
-app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-  const user = db.users.find(u => u.email === email && u.password === password);
-
-  if (!user) {
-    return res.status(401).json({ message: 'Invalid email or password' });
-  }
-
-  const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-
-  res.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      balance: user.balance,
-      kycStatus: user.kycStatus,
-      withdrawalBlocked: user.withdrawalBlocked
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
     }
-  });
+
+    // Sign in with Supabase
+    const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (authError) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Get user profile
+    console.log('Fetching profile for user:', authData.user.id);
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', authData.user.id)
+      .single();
+
+    let userProfile;
+    if (profileError) {
+      console.error('Profile fetch error:', profileError);
+      // Fallback to mock data if profile fetch fails
+      userProfile = {
+        id: authData.user.id,
+        email: authData.user.email,
+        role: 'user',
+        kyc_status: 'pending',
+        withdrawal_blocked: false
+      };
+    } else {
+      userProfile = profile;
+    }
+
+    // Get wallet info
+    const { data: wallet, error: walletError } = await supabaseAdmin
+      .from('wallets')
+      .select('*')
+      .eq('user_id', authData.user.id)
+      .single();
+
+    const walletData = wallet || { balance: 0 };
+
+    res.json({
+      token: authData.session?.access_token,
+      user: {
+        id: authData.user.id,
+        email: authData.user.email,
+        role: userProfile.role,
+        balance: Number(walletData.balance || 0),
+        kyc_status: userProfile.kyc_status,
+        withdrawal_blocked: userProfile.withdrawal_blocked
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
-app.get('/api/auth/check', authenticateToken, (req, res) => {
-  const user = db.users.find(u => u.id === req.user.id);
-  if (!user) {
-    return res.status(404).json({ message: 'User not found' });
-  }
+app.get('/api/auth/check', authenticateToken, async (req, res) => {
+  try {
+    // Get user profile from database
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', req.user.id)
+      .single();
 
-  res.json({
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      balance: user.balance,
-      kycStatus: user.kycStatus,
-      withdrawalBlocked: user.withdrawalBlocked
+    let userProfile;
+    if (profileError) {
+      console.error('Profile fetch error in auth check:', profileError);
+      // Fallback to token data
+      userProfile = {
+        id: req.user.id,
+        email: req.user.email,
+        role: req.user.role || 'user',
+        kyc_status: 'pending',
+        withdrawal_blocked: false
+      };
+    } else {
+      userProfile = profile;
     }
-  });
+
+    // Get wallet info
+    const { data: wallet } = await supabaseAdmin
+      .from('wallets')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .single();
+
+    const walletData = wallet || { balance: 0 };
+
+    res.json({
+      user: {
+        id: userProfile.id,
+        email: userProfile.email,
+        role: userProfile.role,
+        balance: Number(walletData.balance || 0),
+        kyc_status: userProfile.kyc_status,
+        withdrawal_blocked: userProfile.withdrawal_blocked
+      }
+    });
+  } catch (error) {
+    console.error('Auth check error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 app.get('/api/auth/profile', authenticateToken, (req, res) => {

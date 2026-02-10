@@ -28,34 +28,17 @@ const isSupabaseEnabled = !!supabase;
 const dbAdapter = {
     get isSupabaseEnabled() { return isSupabaseEnabled; },
 
-    users: {
+    profiles: {
         findByEmail: async (email) => {
             if (!isSupabaseEnabled) return memoryDb.users.find(u => u.email === email);
-            const { data, error } = await supabase.from('users').select('*').eq('email', email).single();
-            if (error && error.code !== 'PGRST116') console.error('Error finding user:', error);
+            const { data, error } = await supabase.from('profiles').select('*').eq('email', email).single();
+            if (error && error.code !== 'PGRST116') console.error('Error finding profile:', error);
             return toCamel(data);
         },
         findById: async (id) => {
             if (!isSupabaseEnabled) return memoryDb.users.find(u => u.id === id);
-            const { data, error } = await supabase.from('users').select('*').eq('id', id).single();
-            if (error && error.code !== 'PGRST116') console.error('Error finding user by ID:', error);
-            return toCamel(data);
-        },
-        create: async (user) => {
-            if (!isSupabaseEnabled) {
-                memoryDb.users.push(user);
-                return user;
-            }
-            // Omit ID if usage implies DB generation, but current app generates ID.
-            // Schema uses UUID. App generates string USR-.... 
-            // We MUST use the App-generated ID if possible (UUID compatible) OR let DB generate.
-            // Since schema is UUID, USR-... will fail.
-            // Strategy: Omit ID and let DB generate UUID. Return the new UUID.
-            const { id, ...userData } = user;
-            const snakeUser = toSnake(userData);
-
-            const { data, error } = await supabase.from('users').insert(snakeUser).select().single();
-            if (error) { throw new Error(error.message); }
+            const { data, error } = await supabase.from('profiles').select('*').eq('id', id).single();
+            if (error && error.code !== 'PGRST116') console.error('Error finding profile by ID:', error);
             return toCamel(data);
         },
         update: async (id, updates) => {
@@ -68,22 +51,60 @@ const dbAdapter = {
                 return null;
             }
             const snakeUpdates = toSnake(updates);
-            const { data, error } = await supabase.from('users').update(snakeUpdates).eq('id', id).select().single();
+            const { data, error } = await supabase.from('profiles').update(snakeUpdates).eq('id', id).select().single();
             if (error) throw new Error(error.message);
             return toCamel(data);
         },
-        updateBalance: async (id, amountToAdd) => {
-            // Atomic increment isn't direct in generic update, need RPC or fetch-update.
-            // For simplicity: fetch, calc, update.
-            const user = await dbAdapter.users.findById(id);
-            if (!user) return null;
-            const newBalance = Number(user.balance) + Number(amountToAdd);
-            return await dbAdapter.users.update(id, { balance: newBalance });
-        },
         getAll: async () => {
             if (!isSupabaseEnabled) return memoryDb.users;
-            const { data } = await supabase.from('users').select('*');
+            const { data } = await supabase.from('profiles').select('*');
             return data.map(toCamel);
+        }
+    },
+
+    wallets: {
+        findByUserId: async (userId) => {
+            if (!isSupabaseEnabled) {
+                const user = memoryDb.users.find(u => u.id === userId);
+                return user ? { balance: user.balance, lockedBalance: user.usedBalance } : null;
+            }
+            const { data, error } = await supabase.from('wallets').select('*').eq('user_id', userId).single();
+            if (error && error.code !== 'PGRST116') console.error('Error finding wallet:', error);
+            return toCamel(data);
+        },
+        updateBalance: async (userId, newBalance, lockedBalance = 0) => {
+            if (!isSupabaseEnabled) {
+                const idx = memoryDb.users.findIndex(u => u.id === userId);
+                if (idx !== -1) {
+                    memoryDb.users[idx].balance = newBalance;
+                    memoryDb.users[idx].usedBalance = lockedBalance;
+                    return memoryDb.users[idx];
+                }
+                return null;
+            }
+            const { data, error } = await supabase.from('wallets')
+                .update({ balance: newBalance, locked_balance: lockedBalance, updated_at: new Date().toISOString() })
+                .eq('user_id', userId)
+                .select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
+        addToBalance: async (userId, amountToAdd) => {
+            if (!isSupabaseEnabled) {
+                const idx = memoryDb.users.findIndex(u => u.id === userId);
+                if (idx !== -1) {
+                    memoryDb.users[idx].balance = Number(memoryDb.users[idx].balance) + Number(amountToAdd);
+                    return memoryDb.users[idx];
+                }
+                return null;
+            }
+            // Use RPC for atomic update
+            const { data, error } = await supabase.rpc('add_to_balance', {
+                user_id: userId,
+                amount: amountToAdd
+            });
+            if (error) throw new Error(error.message);
+            return data;
         }
     },
 
@@ -93,10 +114,149 @@ const dbAdapter = {
                 memoryDb.transactions.push(transaction);
                 return transaction;
             }
-            const { id, userId, ...txData } = transaction;
-            // Map fields explicitly if needed
+            const { id, ...txData } = transaction;
             const snakeTx = toSnake(txData);
-            snakeTx.user_id = userId;
+            const { data, error } = await supabase.from('transactions').insert(snakeTx).select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
+        findByUserId: async (userId) => {
+            if (!isSupabaseEnabled) return memoryDb.transactions.filter(t => t.userId === userId);
+            const { data } = await supabase.from('transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+            return data.map(toCamel);
+        },
+        getAll: async () => {
+            if (!isSupabaseEnabled) return memoryDb.transactions;
+            const { data } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
+            return data.map(toCamel);
+        }
+    },
+
+    deposits: {
+        create: async (deposit) => {
+            if (!isSupabaseEnabled) {
+                memoryDb.depositRequests.push(deposit);
+                return deposit;
+            }
+            const { id, ...depData } = deposit;
+            const snakeDep = toSnake(depData);
+            const { data, error } = await supabase.from('deposits').insert(snakeDep).select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
+        findByUserId: async (userId) => {
+            if (!isSupabaseEnabled) return memoryDb.depositRequests.filter(d => d.userId === userId);
+            const { data } = await supabase.from('deposits').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+            return data.map(toCamel);
+        },
+        findById: async (id) => {
+            if (!isSupabaseEnabled) return memoryDb.depositRequests.find(d => d.id === id);
+            const { data, error } = await supabase.from('deposits').select('*').eq('id', id).single();
+            if (error && error.code !== 'PGRST116') console.error('Error finding deposit:', error);
+            return toCamel(data);
+        },
+        update: async (id, updates) => {
+            if (!isSupabaseEnabled) {
+                const idx = memoryDb.depositRequests.findIndex(d => d.id === id);
+                if (idx !== -1) {
+                    memoryDb.depositRequests[idx] = { ...memoryDb.depositRequests[idx], ...updates };
+                    return memoryDb.depositRequests[idx];
+                }
+                return null;
+            }
+            const snakeUpdates = toSnake(updates);
+            const { data, error } = await supabase.from('deposits').update(snakeUpdates).eq('id', id).select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
+        getAll: async () => {
+            if (!isSupabaseEnabled) return memoryDb.depositRequests;
+            const { data } = await supabase.from('deposits').select('*').order('created_at', { ascending: false });
+            return data.map(toCamel);
+        }
+    },
+
+    withdrawals: {
+        create: async (withdrawal) => {
+            if (!isSupabaseEnabled) {
+                memoryDb.withdrawalRequests.push(withdrawal);
+                return withdrawal;
+            }
+            const { id, ...wdData } = withdrawal;
+            const snakeWd = toSnake(wdData);
+            const { data, error } = await supabase.from('withdrawals').insert(snakeWd).select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
+        findByUserId: async (userId) => {
+            if (!isSupabaseEnabled) return memoryDb.withdrawalRequests.filter(w => w.userId === userId);
+            const { data } = await supabase.from('withdrawals').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+            return data.map(toCamel);
+        },
+        findById: async (id) => {
+            if (!isSupabaseEnabled) return memoryDb.withdrawalRequests.find(w => w.id === id);
+            const { data, error } = await supabase.from('withdrawals').select('*').eq('id', id).single();
+            if (error && error.code !== 'PGRST116') console.error('Error finding withdrawal:', error);
+            return toCamel(data);
+        },
+        update: async (id, updates) => {
+            if (!isSupabaseEnabled) {
+                const idx = memoryDb.withdrawalRequests.findIndex(w => w.id === id);
+                if (idx !== -1) {
+                    memoryDb.withdrawalRequests[idx] = { ...memoryDb.withdrawalRequests[idx], ...updates };
+                    return memoryDb.withdrawalRequests[idx];
+                }
+                return null;
+            }
+            const snakeUpdates = toSnake(updates);
+            const { data, error } = await supabase.from('withdrawals').update(snakeUpdates).eq('id', id).select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
+        getAll: async () => {
+            if (!isSupabaseEnabled) return memoryDb.withdrawalRequests;
+            const { data } = await supabase.from('withdrawals').select('*').order('created_at', { ascending: false });
+            return data.map(toCamel);
+        }
+    },
+
+    adminSettings: {
+        get: async () => {
+            if (!isSupabaseEnabled) return memoryDb.settings;
+            const { data, error } = await supabase.from('admin_settings').select('*').single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        },
+        update: async (updates) => {
+            if (!isSupabaseEnabled) {
+                memoryDb.settings = { ...memoryDb.settings, ...updates };
+                return memoryDb.settings;
+            }
+            const snakeUpdates = toSnake(updates);
+            const { data, error } = await supabase.from('admin_settings').update(snakeUpdates).select().single();
+            if (error) throw new Error(error.message);
+            return toCamel(data);
+        }
+    },
+
+    // Legacy compatibility - redirect to profiles
+    users: {
+        findByEmail: (email) => dbAdapter.profiles.findByEmail(email),
+        findById: (id) => dbAdapter.profiles.findById(id),
+        update: (id, updates) => dbAdapter.profiles.update(id, updates),
+        updateBalance: async (id, amountToAdd) => {
+            const wallet = await dbAdapter.wallets.findByUserId(id);
+            if (!wallet) return null;
+            const newBalance = Number(wallet.balance) + Number(amountToAdd);
+            return await dbAdapter.wallets.updateBalance(id, newBalance, wallet.lockedBalance);
+        },
+        getAll: () => dbAdapter.profiles.getAll(),
+        create: async (user) => {
+            // This should not be used anymore - users are created via Supabase Auth
+            throw new Error('Use Supabase Auth for user creation');
+        }
+    }
+};
 
             const { data, error } = await supabase.from('transactions').insert(snakeTx).select().single();
             if (error) throw new Error(error.message);
