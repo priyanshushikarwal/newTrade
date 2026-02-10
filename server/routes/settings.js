@@ -6,7 +6,7 @@ const router = express.Router();
 // Get Withdrawal Charges (Public)
 router.get('/withdrawal-charges', async (req, res) => {
     try {
-        const settings = await dbAdapter.settings.get();
+        const settings = await dbAdapter.adminSettings.get();
         res.json(settings.withdrawalCharges);
     } catch (error) {
         res.status(500).json({ message: 'Error' });
@@ -16,7 +16,7 @@ router.get('/withdrawal-charges', async (req, res) => {
 // Get WhatsApp Number (Public)
 router.get('/whatsapp', async (req, res) => {
     try {
-        const settings = await dbAdapter.settings.get();
+        const settings = await dbAdapter.adminSettings.get();
         res.json({ whatsappNumber: settings.whatsappNumber });
     } catch (error) {
         res.status(500).json({ message: 'Error' });
@@ -26,7 +26,7 @@ router.get('/whatsapp', async (req, res) => {
 // Get QR Code (Public)
 router.get('/qr-code', async (req, res) => {
     try {
-        const settings = await dbAdapter.settings.get();
+        const settings = await dbAdapter.adminSettings.get();
         if (!settings.qrCodeUrl) {
             return res.status(404).json({ message: 'No QR code available' });
         }

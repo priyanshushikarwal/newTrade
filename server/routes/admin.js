@@ -175,11 +175,23 @@ module.exports = (io) => {
         const profileMap = {};
         profiles.forEach(p => profileMap[p.id] = p);
 
-        const enriched = withdrawals.map(w => ({
-            ...w,
-            userName: profileMap[w.userId]?.name || 'Unknown',
-            userEmail: profileMap[w.userId]?.email || 'Unknown'
-        }));
+        const enriched = withdrawals.map(w => {
+            const enrichedW = {
+                ...w,
+                userName: profileMap[w.userId]?.name || 'Unknown',
+                userEmail: profileMap[w.userId]?.email || 'Unknown'
+            };
+
+            // Map flat DB fields to paymentProof object expected by frontend
+            if (w.paymentProofUrl || w.utrNumber || w.serverCharge) {
+                enrichedW.paymentProof = {
+                    screenshot: w.paymentProofUrl || null,
+                    utrNumber: w.utrNumber || '',
+                    serverCharge: Number(w.serverCharge) || 0
+                };
+            }
+            return enrichedW;
+        });
         res.json(enriched);
     });
 

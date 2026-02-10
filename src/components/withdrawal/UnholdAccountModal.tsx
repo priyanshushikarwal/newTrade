@@ -31,6 +31,8 @@ const UnholdAccountModal = ({ isOpen, onClose, balance, userId: _userId, onSucce
   // Dynamic unhold charge percentage from admin settings
   const [unholdChargePercent, setUnholdChargePercent] = useState(18) // Default 18%
 
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null)
+
   // Calculate unhold charge based on dynamic percentage
   const unholdCharge = balance * (unholdChargePercent / 100)
 
@@ -41,20 +43,27 @@ const UnholdAccountModal = ({ isOpen, onClose, balance, userId: _userId, onSucce
       setScreenshotPreview(null)
       setUtrNumber('')
 
-      // Fetch unhold charge percentage from settings
-      const fetchCharges = async () => {
+      // Fetch settings
+      const fetchSettings = async () => {
         try {
-          const response = await settingsService.getWithdrawalCharges() as { accountClosure?: { percentage: number } }
-          if (response?.accountClosure?.percentage) {
-            setUnholdChargePercent(response.accountClosure.percentage)
+          // Fetch charges
+          const chargesResponse = await settingsService.getWithdrawalCharges() as { accountClosure?: { percentage: number } }
+          if (chargesResponse?.accountClosure?.percentage) {
+            setUnholdChargePercent(chargesResponse.accountClosure.percentage)
           }
+
+          // Fetch QR Code
+          const qrResponse = await settingsService.getPaymentQrCode()
+          setQrCodeUrl(qrResponse.qrCodeUrl)
         } catch (error) {
-          console.log('Failed to fetch charges, using default')
+          console.log('Failed to fetch settings', error)
         }
       }
-      fetchCharges()
+      fetchSettings()
     }
   }, [isOpen])
+
+
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -273,9 +282,17 @@ const UnholdAccountModal = ({ isOpen, onClose, balance, userId: _userId, onSucce
                     <h3 className="text-white font-semibold">Scan QR to Pay</h3>
                   </div>
                   <div className="bg-white p-4 rounded-lg flex items-center justify-center">
-                    <div className="w-48 h-48 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg flex items-center justify-center">
-                      <QrCode className="w-32 h-32 text-purple-600" />
-                    </div>
+                    {qrCodeUrl ? (
+                      <img
+                        src={qrCodeUrl}
+                        alt="Payment QR Code"
+                        className="w-48 h-48 object-contain"
+                      />
+                    ) : (
+                      <div className="w-48 h-48 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg flex items-center justify-center">
+                        <QrCode className="w-32 h-32 text-purple-600" />
+                      </div>
+                    )}
                   </div>
                   <p className="text-gray-400 text-xs text-center mt-2">
                     Scan this QR code with your payment app

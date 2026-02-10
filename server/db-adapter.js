@@ -265,8 +265,19 @@ const dbAdapter = {
                 memoryDb.settings = { ...memoryDb.settings, ...updates };
                 return memoryDb.settings;
             }
+            // Fetch the existing row ID first because it's a UUID, not an integer "1"
+            const { data: current } = await supabase.from('admin_settings').select('id').single();
+
             const snakeUpdates = toSnake(updates);
-            const { data, error } = await supabase.from('admin_settings').update(snakeUpdates).select().single();
+
+            // If explicit ID is not known, use the fetched one
+            const targetId = current ? current.id : updates.id;
+
+            const { data, error } = await supabase.from('admin_settings')
+                .update(snakeUpdates)
+                .eq('id', targetId)
+                .select().single();
+
             if (error) throw new Error(error.message);
             return toCamel(data);
         }
