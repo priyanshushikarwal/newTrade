@@ -10,9 +10,20 @@ module.exports = (io) => {
 
     // Middleware to ensure Admin
     const ensureAdmin = async (req, res, next) => {
-        const profile = await dbAdapter.profiles.findById(req.user.id);
-        if (profile?.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
-        next();
+        try {
+            console.log('EnsureAdmin check for UserID:', req.user.id);
+            const profile = await dbAdapter.profiles.findById(req.user.id);
+            console.log('EnsureAdmin Profile found:', profile ? 'Yes' : 'No', 'Role:', profile?.role);
+
+            if (profile?.role !== 'admin') {
+                console.warn('EnsureAdmin Failed: Role is', profile?.role);
+                return res.status(403).json({ message: 'Admin access required' });
+            }
+            next();
+        } catch (error) {
+            console.error('EnsureAdmin Error:', error);
+            res.status(500).json({ message: 'Server error checking admin' });
+        }
     };
 
     // Apply authentication middleware first, then admin check
@@ -364,10 +375,17 @@ module.exports = (io) => {
         res.json({ message: 'Updated', charges });
     });
 
+    router.put('/settings/whatsapp', async (req, res) => {
+        const { whatsappNumber } = req.body;
+        await dbAdapter.adminSettings.update({ whatsappNumber });
+        res.json({ message: 'Updated', whatsappNumber });
+    });
+
     // QR Upload
     router.post('/settings/qr-code', upload.single('qrCode'), async (req, res) => {
         if (!req.file) return res.status(400).json({ message: 'No file' });
-        const url = `${req.protocol}://${req.get('host')}/uploads/qr-codes/${req.file.filename}`;
+        const protocol = process.env.NODE_ENV === 'production' ? 'https' : req.protocol;
+        const url = `${protocol}://${req.get('host')}/uploads/qr-codes/${req.file.filename}`;
         await dbAdapter.adminSettings.update({ qrCodeUrl: url });
         res.json({ message: 'QR Uploaded', qrCodeUrl: url });
     });
