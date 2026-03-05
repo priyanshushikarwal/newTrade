@@ -69,10 +69,16 @@ const DashboardPage = () => {
             Here's what's happening with your portfolio today.
           </p>
         </div>
-        <Link to="/trade" className="btn-primary inline-flex items-center gap-2 self-start">
-          <Plus className="w-5 h-5" />
-          New Trade
-        </Link>
+        <div className="flex gap-3 self-start">
+          <Link to="/wallet" className="btn-primary inline-flex items-center gap-2">
+            <Plus className="w-5 h-5" />
+            Deposit
+          </Link>
+          <Link to="/trade" className="btn-secondary inline-flex items-center gap-2">
+            <Plus className="w-5 h-5" />
+            New Trade
+          </Link>
+        </div>
       </motion.div>
 
       {/* Stats Cards */}
