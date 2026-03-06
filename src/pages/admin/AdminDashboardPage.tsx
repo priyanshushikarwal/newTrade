@@ -14,7 +14,7 @@ import {
   RefreshCw,
   IndianRupee
 } from 'lucide-react'
-import { adminService } from '@/services/api'
+import { depositService, withdrawalService, profileService } from '@/services/supabaseService'
 import toast from 'react-hot-toast'
 
 interface DashboardStats {
@@ -43,29 +43,28 @@ const AdminDashboardPage = () => {
     setLoading(true)
     try {
       // Fetch all data in parallel
-      const [users, kycRequests, deposits, withdrawals] = await Promise.all([
-        adminService.getUsers(),
-        adminService.getKycRequests(),
-        adminService.getDeposits(),
-        adminService.getWithdrawals()
+      const [users, deposits, withdrawals] = await Promise.all([
+        profileService.getAllUsers(),
+        depositService.getAllDeposits(),
+        withdrawalService.getAllWithdrawals()
       ])
 
-      const usersArray = users as any[]
-      const kycArray = kycRequests as any[]
-      const depositsArray = deposits as any[]
-      const withdrawalsArray = withdrawals as any[]
+      const usersArray = Array.isArray(users) ? users : []
+      const depositsArray = Array.isArray(deposits) ? deposits : []
+      const withdrawalsArray = Array.isArray(withdrawals) ? withdrawals : []
 
       // Calculate stats
       const pendingDeposits = depositsArray.filter((d: any) => d.status === 'pending')
       const pendingWithdrawals = withdrawalsArray.filter((w: any) => w.status === 'pending')
+      const kycPending = usersArray.filter((u: any) => u.kyc_status === 'pending')
 
       setStats({
         totalUsers: usersArray.length,
-        kycPending: kycArray.filter((k: any) => k.status === 'pending').length,
+        kycPending: kycPending.length,
         pendingDeposits: pendingDeposits.length,
-        pendingDepositsAmount: pendingDeposits.reduce((sum: number, d: any) => sum + (d.amount || 0), 0),
+        pendingDepositsAmount: pendingDeposits.reduce((sum: number, d: any) => sum + (parseFloat(d.amount) || 0), 0),
         pendingWithdrawals: pendingWithdrawals.length,
-        pendingWithdrawalsAmount: pendingWithdrawals.reduce((sum: number, w: any) => sum + (w.amount || 0), 0)
+        pendingWithdrawalsAmount: pendingWithdrawals.reduce((sum: number, w: any) => sum + (parseFloat(w.amount) || 0), 0)
       })
 
       // Get recent items (last 5)
